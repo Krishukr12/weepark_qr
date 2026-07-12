@@ -1,0 +1,328 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────
+
+enum Role {
+  SUPER_ADMIN
+  ORG_ADMIN
+  VALET
+  EMPLOYEE
+}
+
+enum VehicleType {
+  CAR
+  SUV
+  BIKE
+  SCOOTER
+  EV
+  OTHER
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  ELECTRIC
+  HYBRID
+  CNG
+  OTHER
+}
+
+enum ParkingStatus {
+  PARKED
+  PICKUP_REQUESTED
+  PICKUP_IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum PickupStatus {
+  PENDING
+  ACCEPTED
+  COMPLETED
+  CANCELLED
+}
+
+enum NotificationType {
+  VEHICLE_PARKED
+  PICKUP_REQUESTED
+  PICKUP_ACCEPTED
+  PICKUP_COMPLETED
+  ORGANIZATION_CREATED
+  VALET_ASSIGNED
+  VALET_UNASSIGNED
+  SYSTEM
+}
+
+// ─────────────────────────────────────────────
+// Auth & Users
+// ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  phone        String?
+  passwordHash String
+  role         Role
+  photoUrl     String?
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizationId String?
+  organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  employee            Employee?
+  refreshTokens       RefreshToken[]
+  passwordResetTokens PasswordResetToken[]
+  valetAssignments    ValetSiteAssignment[]
+  notifications       Notification[]
+  auditLogs           AuditLog[]
+  assignedParkings    ParkingEntry[]        @relation("ValetParkings")
+  acceptedPickups     PickupRequest[]       @relation("PickupHandler")
+
+  @@index([role])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userAgent String?
+  ipAddress String?
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  tokenHash String    @unique
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+// ─────────────────────────────────────────────
+// Organizations & Employees
+// ─────────────────────────────────────────────
+
+model Organization {
+  id                String   @id @default(cuid())
+  name              String
+  companyName       String
+  gstNumber         String?  @unique
+  adminName         String
+  adminEmail        String   @unique
+  adminPhone        String?
+  address           String?
+  logoUrl           String?
+  parkingAllocation Int      @default(0)
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  users          User[]
+  employees      Employee[]
+  parkingEntries ParkingEntry[]
+
+  @@map("organizations")
+}
+
+model Employee {
+  id           String   @id @default(cuid())
+  employeeCode String
+  name         String
+  department   String?
+  designation  String?
+  phone        String?
+  email        String   @unique
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  vehicles       Vehicle[]
+  parkingEntries ParkingEntry[]
+
+  @@unique([organizationId, employeeCode])
+  @@index([organizationId])
+  @@map("employees")
+}
+
+model Vehicle {
+  id            String      @id @default(cuid())
+  vehicleNumber String      @unique
+  vehicleType   VehicleType @default(CAR)
+  brand         String?
+  model         String?
+  color         String?
+  fuelType      FuelType    @default(PETROL)
+  isPrimary     Boolean     @default(false)
+  rcNumber      String?
+  isActive      Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  parkingEntries ParkingEntry[]
+
+  @@index([employeeId])
+  @@map("vehicles")
+}
+
+// ─────────────────────────────────────────────
+// Sites & Valets
+// ─────────────────────────────────────────────
+
+model Site {
+  id             String   @id @default(cuid())
+  siteCode       String   @unique
+  name           String
+  address        String
+  latitude       Float?
+  longitude      Float?
+  googleMapsLink String?
+  totalCapacity  Int
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  valetAssignments ValetSiteAssignment[]
+  parkingEntries   ParkingEntry[]
+
+  @@map("sites")
+}
+
+model ValetSiteAssignment {
+  id         String   @id @default(cuid())
+  valetId    String
+  valet      User     @relation(fields: [valetId], references: [id], onDelete: Cascade)
+  siteId     String
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  assignedAt DateTime @default(now())
+
+  @@unique([valetId, siteId])
+  @@index([siteId])
+  @@map("valet_site_assignments")
+}
+
+// ─────────────────────────────────────────────
+// Parking & Pickups
+// ─────────────────────────────────────────────
+
+model ParkingEntry {
+  id              String        @id @default(cuid())
+  ticketCode      String        @unique
+  status          ParkingStatus @default(PARKED)
+  parkedAt        DateTime      @default(now())
+  pickedUpAt      DateTime?
+  durationMinutes Int?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  vehicleId String
+  vehicle   Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+
+  employeeId String
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Restrict)
+
+  valetId String?
+  valet   User?   @relation("ValetParkings", fields: [valetId], references: [id], onDelete: SetNull)
+
+  pickupRequest PickupRequest?
+
+  @@index([siteId, status])
+  @@index([organizationId])
+  @@index([employeeId])
+  @@index([parkedAt])
+  @@map("parking_entries")
+}
+
+model PickupRequest {
+  id          String       @id @default(cuid())
+  status      PickupStatus @default(PENDING)
+  requestedAt DateTime     @default(now())
+  acceptedAt  DateTime?
+  completedAt DateTime?
+
+  parkingEntryId String       @unique
+  parkingEntry   ParkingEntry @relation(fields: [parkingEntryId], references: [id], onDelete: Cascade)
+
+  acceptedById String?
+  acceptedBy   User?   @relation("PickupHandler", fields: [acceptedById], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@map("pickup_requests")
+}
+
+// ─────────────────────────────────────────────
+// Notifications & Audit
+// ─────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  type      NotificationType
+  title     String
+  message   String
+  data      Json?
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String?
+  metadata  Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([userId])
+  @@map("audit_logs")
+}

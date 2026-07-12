@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: weepark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: weepark
+      POSTGRES_PASSWORD: weepark
+      POSTGRES_DB: weepark
+    ports:
+      - '5434:5432'
+    volumes:
+      - weepark_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U weepark -d weepark']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: weepark-backend
+    restart: unless-stopped
+    profiles: ['full']
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://weepark:weepark@postgres:5432/weepark?schema=public
+      CLIENT_URL: http://localhost:8080
+      API_URL: http://localhost:4000
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-me-access-secret-32chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-me-refresh-secret-32chars}
+    ports:
+      - '4000:4000'
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: weepark-frontend
+    restart: unless-stopped
+    profiles: ['full']
+    depends_on:
+      - backend
+    ports:
+      - '8080:80'
+
+volumes:
+  weepark_pgdata:
