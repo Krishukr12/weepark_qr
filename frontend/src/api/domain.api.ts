@@ -13,6 +13,8 @@ import type {
   PickupRequest,
   PublicSite,
   Site,
+  SiteAllocationInput,
+  SiteCapacitySummary,
   SiteDetail,
   TrendPoint,
   UsagePoint,
@@ -55,9 +57,18 @@ export const organizationsApi = {
   list: (params?: ListParams): Promise<Paginated<Organization>> => getPaginated('/organizations', params),
   get: (id: string): Promise<Organization> => getOne(`/organizations/${id}`),
   mine: (): Promise<Organization> => getOne('/organizations/mine'),
-  create: (input: Partial<Organization>): Promise<Organization> => postOne('/organizations', input),
-  update: (id: string, input: Partial<Organization>): Promise<Organization> => patchOne(`/organizations/${id}`, input),
+  create: (input: Partial<Organization> & { siteAllocations?: SiteAllocationInput[] }): Promise<Organization> =>
+    postOne('/organizations', input),
+  update: (id: string, input: Partial<Organization> & { siteAllocations?: SiteAllocationInput[] }): Promise<Organization> =>
+    patchOne(`/organizations/${id}`, input),
   remove: (id: string): Promise<void> => deleteOne(`/organizations/${id}`),
+  siteCapacity: (excludeOrganizationId?: string): Promise<SiteCapacitySummary[]> =>
+    getOne(
+      `/organizations/site-capacity${excludeOrganizationId ? `?excludeOrganizationId=${encodeURIComponent(excludeOrganizationId)}` : ''}`,
+    ),
+  assignSite: (id: string, siteId: string, allocatedSpaces: number): Promise<Organization> =>
+    postOne(`/organizations/${id}/sites/${siteId}`, { allocatedSpaces }),
+  unassignSite: (id: string, siteId: string): Promise<void> => deleteOne(`/organizations/${id}/sites/${siteId}`),
 };
 
 export const employeesApi = {
@@ -123,7 +134,8 @@ export const auditApi = {
 /** Public (unauthenticated) QR flow endpoints. */
 export const publicApi = {
   getSite: (siteCode: string): Promise<PublicSite> => getOne(`/public/parking/sites/${siteCode}`),
-  organizations: (): Promise<OrganizationOption[]> => getOne('/public/organizations'),
+  organizations: (siteCode?: string): Promise<OrganizationOption[]> =>
+    getOne(`/public/organizations${siteCode ? `?siteCode=${encodeURIComponent(siteCode)}` : ''}`),
   lookupVehicle: (siteCode: string, vehicleNumber: string): Promise<VehicleLookupResult> =>
     postOne(`/public/parking/sites/${siteCode}/lookup`, { vehicleNumber }),
   quickRegister: (siteCode: string, input: Record<string, unknown>): Promise<Vehicle> =>

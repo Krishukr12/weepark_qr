@@ -8,6 +8,7 @@ RUN npm ci
 
 COPY tsconfig.json ./
 COPY src ./src
+COPY assets ./assets
 RUN npm run build
 
 # ---- Production stage ----
@@ -20,6 +21,7 @@ COPY prisma ./prisma
 RUN npm ci --omit=dev && npx prisma generate
 
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/assets ./assets
 
 EXPOSE 4000
 

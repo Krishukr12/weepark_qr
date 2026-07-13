@@ -58,6 +58,13 @@ export interface SiteOccupancy {
   occupancyRate: number;
 }
 
+export interface OrgSiteAllocation {
+  allocatedSpaces: number;
+  occupied: number;
+  available: number;
+  occupancyRate: number;
+}
+
 export interface Site {
   id: string;
   siteCode: string;
@@ -70,6 +77,7 @@ export interface Site {
   isActive: boolean;
   createdAt: string;
   occupancy?: SiteOccupancy;
+  orgAllocation?: OrgSiteAllocation | null;
   _count?: { valetAssignments: number };
 }
 
@@ -119,6 +127,26 @@ export interface Organization {
   isActive: boolean;
   createdAt: string;
   _count?: { employees: number; parkingEntries: number };
+  siteAssignments?: {
+    id: string;
+    assignedAt: string;
+    allocatedSpaces: number;
+    site: { id: string; name: string; siteCode: string; isActive: boolean; totalCapacity: number };
+  }[];
+}
+
+export interface SiteCapacitySummary {
+  siteId: string;
+  siteName: string;
+  siteCode: string;
+  totalCapacity: number;
+  allocatedToOthers: number;
+  remaining: number;
+}
+
+export interface SiteAllocationInput {
+  siteId: string;
+  allocatedSpaces: number;
 }
 
 export interface OrganizationOption {
@@ -273,6 +301,7 @@ export interface VehicleLookupResult {
   found: boolean;
   vehicle: Vehicle | null;
   activeParking: ParkingEntry | null;
+  canParkAtSite: boolean;
   site: { id: string; name: string; siteCode: string };
 }
 

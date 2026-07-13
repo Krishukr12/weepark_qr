@@ -1,5 +1,6 @@
 import type { Site } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { organizationRepository } from '../repositories/organization.repository';
 import { siteRepository, type SiteWithCounts } from '../repositories/site.repository';
 import { parkingRepository } from '../repositories/parking.repository';
 import { ApiError } from '../utils/apiError';
@@ -7,11 +8,19 @@ import { generateSiteCode } from '../utils/codes';
 import { generateSiteQrDataUrl, generateSiteQrPngBuffer, getSiteParkingUrl } from '../utils/qrcode';
 import { buildPaginatedResult } from '../utils/pagination';
 import { recordAudit } from './audit.service';
-import type { PaginatedResult, PaginationParams } from '../types';
+import type { AuthenticatedUser, PaginatedResult, PaginationParams } from '../types';
 import type { CreateSiteInput, UpdateSiteInput } from '../validators/site.validator';
 
 export interface SiteOccupancy {
   totalCapacity: number;
+  occupied: number;
+  available: number;
+  occupancyRate: number;
+}
+
+/** An organization's allocated slice of a site vs currently parked vehicles. */
+export interface OrgSiteAllocation {
+  allocatedSpaces: number;
   occupied: number;
   available: number;
   occupancyRate: number;
@@ -28,20 +37,94 @@ async function getOccupancy(site: Pick<Site, 'id' | 'totalCapacity'>): Promise<S
   };
 }
 
+async function getOrgAllocation(organizationId: string, siteId: string): Promise<OrgSiteAllocation | null> {
+  const allocated = await organizationRepository.getAllocation(organizationId, siteId);
+  if (allocated === null) return null;
+  const occupied = await parkingRepository.countActiveForOrgInSite(organizationId, siteId);
+  const available = Math.max(0, allocated - occupied);
+  return {
+    allocatedSpaces: allocated,
+    occupied,
+    available,
+    occupancyRate: allocated > 0 ? Math.round((occupied / allocated) * 100) : 0,
+  };
+}
+
+async function assertCanViewSite(actor: AuthenticatedUser, siteId: string): Promise<void> {
+  if (actor.role === 'SUPER_ADMIN') return;
+
+  if (actor.role === 'ORG_ADMIN') {
+    if (!actor.organizationId) throw ApiError.forbidden('Your account is not linked to an organization');
+    const assigned = await organizationRepository.isAssignedToSite(actor.organizationId, siteId);
+    if (!assigned) throw ApiError.forbidden('This site is not assigned to your organization');
+    return;
+  }
+
+  if (actor.role === 'VALET') {
+    const assignment = await prisma.valetSiteAssignment.findUnique({
+      where: { valetId_siteId: { valetId: actor.id, siteId } },
+    });
+    if (!assignment) throw ApiError.forbidden('You are not assigned to this site');
+  }
+}
+
 export const siteService = {
-  async list(params: PaginationParams & { isActive?: boolean }): Promise<PaginatedResult<SiteWithCounts & { occupancy: SiteOccupancy }>> {
-    const { items, total } = await siteRepository.findMany(params);
+  async list(
+    actor: AuthenticatedUser,
+    params: PaginationParams & { isActive?: boolean },
+  ): Promise<
+    PaginatedResult<SiteWithCounts & { occupancy: SiteOccupancy; orgAllocation?: OrgSiteAllocation | null }>
+  > {
+    let siteIds: string[] | undefined;
+
+    if (actor.role === 'ORG_ADMIN') {
+      if (!actor.organizationId) throw ApiError.forbidden('Your account is not linked to an organization');
+      siteIds = await organizationRepository.getSiteIds(actor.organizationId);
+      if (siteIds.length === 0) {
+        return buildPaginatedResult([], 0, params);
+      }
+    } else if (actor.role === 'VALET') {
+      const assignments = await prisma.valetSiteAssignment.findMany({
+        where: { valetId: actor.id },
+        select: { siteId: true },
+      });
+      siteIds = assignments.map((a) => a.siteId);
+      if (siteIds.length === 0) {
+        return buildPaginatedResult([], 0, params);
+      }
+    }
+
+    const { items, total } = await siteRepository.findMany({ ...params, siteIds });
     const enriched = await Promise.all(
-      items.map(async (site) => ({ ...site, occupancy: await getOccupancy(site) })),
+      items.map(async (site) => ({
+        ...site,
+        occupancy: await getOccupancy(site),
+        ...(actor.role === 'ORG_ADMIN' && actor.organizationId
+          ? { orgAllocation: await getOrgAllocation(actor.organizationId, site.id) }
+          : {}),
+      })),
     );
     return buildPaginatedResult(enriched, total, params);
   },
 
-  async getById(id: string): Promise<Site & { occupancy: SiteOccupancy; qrDataUrl: string; parkingUrl: string; valets: unknown[] }> {
+  async getById(
+    actor: AuthenticatedUser,
+    id: string,
+  ): Promise<
+    Site & {
+      occupancy: SiteOccupancy;
+      orgAllocation?: OrgSiteAllocation | null;
+      qrDataUrl: string;
+      parkingUrl: string;
+      valets: unknown[];
+    }
+  > {
     const site = await siteRepository.findById(id);
     if (!site) throw ApiError.notFound('Site not found');
 
-    const [occupancy, qrDataUrl, assignments] = await Promise.all([
+    await assertCanViewSite(actor, id);
+
+    const [occupancy, qrDataUrl, assignments, orgAllocation] = await Promise.all([
       getOccupancy(site),
       generateSiteQrDataUrl(site.siteCode),
       prisma.valetSiteAssignment.findMany({
@@ -51,11 +134,15 @@ export const siteService = {
           valet: { select: { id: true, name: true, email: true, phone: true, photoUrl: true, isActive: true } },
         },
       }),
+      actor.role === 'ORG_ADMIN' && actor.organizationId
+        ? getOrgAllocation(actor.organizationId, id)
+        : Promise.resolve(undefined),
     ]);
 
     return {
       ...site,
       occupancy,
+      ...(orgAllocation !== undefined ? { orgAllocation } : {}),
       qrDataUrl,
       parkingUrl: getSiteParkingUrl(site.siteCode),
       valets: assignments.map((a) => ({ ...a.valet, assignedAt: a.assignedAt })),
@@ -112,7 +199,13 @@ export const siteService = {
   },
 
   /** Public lookup used by the QR landing page. */
-  async getPublicByCode(siteCode: string): Promise<Pick<Site, 'id' | 'siteCode' | 'name' | 'address' | 'latitude' | 'longitude' | 'googleMapsLink'> & { occupancy: SiteOccupancy }> {
+  async getPublicByCode(
+    siteCode: string,
+  ): Promise<
+    Pick<Site, 'id' | 'siteCode' | 'name' | 'address' | 'latitude' | 'longitude' | 'googleMapsLink'> & {
+      occupancy: SiteOccupancy;
+    }
+  > {
     const site = await siteRepository.findByCode(siteCode);
     if (!site || !site.isActive) throw ApiError.notFound('This parking site does not exist or is inactive');
 

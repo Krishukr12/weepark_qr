@@ -12,9 +12,10 @@ const siteWithCounts = {
 export type SiteWithCounts = Prisma.SiteGetPayload<typeof siteWithCounts>;
 
 export const siteRepository = {
-  async findMany(params: PaginationParams & { isActive?: boolean }): Promise<{ items: SiteWithCounts[]; total: number }> {
+  async findMany(params: PaginationParams & { isActive?: boolean; siteIds?: string[] }): Promise<{ items: SiteWithCounts[]; total: number }> {
     const where: Prisma.SiteWhereInput = {
       ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
+      ...(params.siteIds ? { id: { in: params.siteIds } } : {}),
       ...(params.search
         ? {
             OR: [

@@ -1,6 +1,7 @@
 import { startOfDay, subDays, format } from 'date-fns';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
+import { organizationRepository } from '../repositories/organization.repository';
 import { ApiError } from '../utils/apiError';
 import type { AuthenticatedUser } from '../types';
 
@@ -41,7 +42,8 @@ const ACTIVE: Prisma.ParkingEntryWhereInput = { status: { in: ['PARKED', 'PICKUP
 async function parkingScope(actor: AuthenticatedUser): Promise<Prisma.ParkingEntryWhereInput> {
   if (actor.role === 'ORG_ADMIN') {
     if (!actor.organizationId) throw ApiError.forbidden('Your account is not linked to an organization');
-    return { organizationId: actor.organizationId };
+    const siteIds = await organizationRepository.getSiteIds(actor.organizationId);
+    return { organizationId: actor.organizationId, siteId: { in: siteIds } };
   }
   if (actor.role === 'VALET') {
     const assignments = await prisma.valetSiteAssignment.findMany({
@@ -59,7 +61,11 @@ export const dashboardService = {
     const today = startOfDay(new Date());
 
     const siteScope: Prisma.SiteWhereInput =
-      actor.role === 'VALET' ? { valetAssignments: { some: { valetId: actor.id } } } : {};
+      actor.role === 'VALET'
+        ? { valetAssignments: { some: { valetId: actor.id } } }
+        : actor.role === 'ORG_ADMIN' && actor.organizationId
+          ? { organizationAssignments: { some: { organizationId: actor.organizationId } } }
+          : {};
 
     const [todaysParking, currentParked, todaysPickups, pendingPickups, sitesAgg, organizations, employees, vehicles, sites, valets] =
       await Promise.all([
@@ -81,9 +87,12 @@ export const dashboardService = {
         actor.role === 'SUPER_ADMIN' ? prisma.user.count({ where: { role: 'VALET', isActive: true } }) : Promise.resolve(0),
       ]);
 
-    // Occupied count for capacity math must be scoped to visible sites, not org.
+    // Occupied count for capacity math must be scoped to visible sites.
     const occupiedForCapacity = await prisma.parkingEntry.count({
-      where: { ...ACTIVE, ...(actor.role === 'VALET' ? scope : {}) },
+      where: {
+        ...ACTIVE,
+        ...(actor.role === 'VALET' || actor.role === 'ORG_ADMIN' ? scope : {}),
+      },
     });
 
     const totalCapacity = sitesAgg._sum.totalCapacity ?? 0;

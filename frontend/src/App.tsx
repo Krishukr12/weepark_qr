@@ -50,7 +50,7 @@ export default function App() {
       <Route element={<RequireAuth />}>
         <Route element={<AppShell />}>
           <Route path="/" element={<DashboardPage />} />
-          <Route element={<RequireRole roles={['SUPER_ADMIN', 'VALET']} />}>
+          <Route element={<RequireRole roles={['SUPER_ADMIN', 'ORG_ADMIN', 'VALET']} />}>
             <Route path="/sites" element={<SitesPage />} />
             <Route path="/sites/:id" element={<SiteDetailPage />} />
           </Route>

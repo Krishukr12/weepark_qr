@@ -119,8 +119,8 @@ export function PublicParkingPage() {
   });
 
   const organizations = useQuery({
-    queryKey: ['public-organizations'],
-    queryFn: publicApi.organizations,
+    queryKey: ['public-organizations', siteCode],
+    queryFn: () => publicApi.organizations(siteCode),
     enabled: step === 'register',
   });
 
@@ -165,6 +165,12 @@ export function PublicParkingPage() {
         setEntry(result.activeParking);
         localStorage.setItem(ENTRY_STORAGE_KEY, result.activeParking.id);
         setStep('parked');
+        return;
+      }
+      if (result.found && result.vehicle && !result.canParkAtSite) {
+        toast.error(
+          `${result.vehicle.employee.organization.companyName} is not assigned to park at this site. Please contact your admin.`,
+        );
         return;
       }
       if (result.found && result.vehicle) {

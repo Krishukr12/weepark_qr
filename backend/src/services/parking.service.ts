@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma';
+import { organizationRepository } from '../repositories/organization.repository';
 import { parkingRepository, type ParkingEntryFull, type ScopedParkingFilter } from '../repositories/parking.repository';
 import { siteRepository } from '../repositories/site.repository';
 import { vehicleRepository, type VehicleWithOwner } from '../repositories/vehicle.repository';
@@ -15,13 +16,20 @@ export interface VehicleLookupResult {
   found: boolean;
   vehicle: VehicleWithOwner | null;
   activeParking: ParkingEntryFull | null;
+  canParkAtSite: boolean;
 }
 
 /** Applies role-based scoping so each role only ever sees its own slice of history. */
 async function scopeFilter(actor: AuthenticatedUser, filter: ParkingHistoryFilter): Promise<ScopedParkingFilter> {
   if (actor.role === 'ORG_ADMIN') {
     if (!actor.organizationId) throw ApiError.forbidden('Your account is not linked to an organization');
-    return { ...filter, organizationId: actor.organizationId };
+    const siteIds = await organizationRepository.getSiteIds(actor.organizationId);
+    if (filter.siteId && !siteIds.includes(filter.siteId)) {
+      throw ApiError.forbidden('You are not assigned to this site');
+    }
+    return filter.siteId
+      ? { ...filter, organizationId: actor.organizationId }
+      : { ...filter, organizationId: actor.organizationId, siteIds };
   }
   if (actor.role === 'VALET') {
     const assignments = await prisma.valetSiteAssignment.findMany({
@@ -68,11 +76,15 @@ export const parkingService = {
 
     const vehicle = await vehicleRepository.findByNumber(vehicleNumber);
     const activeParking = vehicle ? await parkingRepository.findActiveByVehicle(vehicle.id) : null;
+    const canParkAtSite = vehicle
+      ? await organizationRepository.isAssignedToSite(vehicle.employee.organization.id, site.id)
+      : true;
 
     return {
       found: Boolean(vehicle),
       vehicle,
       activeParking,
+      canParkAtSite,
       site: { id: site.id, name: site.name, siteCode: site.siteCode },
     };
   },
@@ -87,6 +99,9 @@ export const parkingService = {
 
     const org = await prisma.organization.findUnique({ where: { id: input.employee.organizationId } });
     if (!org || !org.isActive) throw ApiError.badRequest('Selected organization is not available');
+
+    const assigned = await organizationRepository.isAssignedToSite(org.id, site.id);
+    if (!assigned) throw ApiError.forbidden('This organization is not assigned to this parking site');
 
     const email = input.employee.email.toLowerCase();
     const vehicle = await prisma.$transaction(async (tx) => {
@@ -127,6 +142,26 @@ export const parkingService = {
 
     const vehicle = await vehicleRepository.findById(vehicleId);
     if (!vehicle) throw ApiError.notFound('Vehicle not found');
+
+    const assigned = await organizationRepository.isAssignedToSite(vehicle.employee.organization.id, site.id);
+    if (!assigned) {
+      throw ApiError.forbidden(
+        `Employees from ${vehicle.employee.organization.companyName} cannot park at this site`,
+      );
+    }
+
+    const allocated = await organizationRepository.getAllocation(vehicle.employee.organization.id, site.id);
+    if (allocated !== null) {
+      const orgOccupied = await parkingRepository.countActiveForOrgInSite(
+        vehicle.employee.organization.id,
+        site.id,
+      );
+      if (orgOccupied >= allocated) {
+        throw ApiError.conflict(
+          `${vehicle.employee.organization.companyName} has used all ${allocated} allocated spaces at ${site.name}`,
+        );
+      }
+    }
 
     const alreadyParked = await parkingRepository.findActiveByVehicle(vehicleId);
     if (alreadyParked) {

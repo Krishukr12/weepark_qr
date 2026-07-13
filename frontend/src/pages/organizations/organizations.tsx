@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Building2, MoreHorizontal, Pencil, Plus, Power, Trash2 } from 'lucide-react';
+import { Building2, MapPin, MoreHorizontal, Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { organizationsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
 import { getInitials } from '@/lib/utils';
@@ -16,6 +16,7 @@ import { ConfirmDialog } from '@/components/shared/confirm-dialog';
 import { ActiveBadge } from '@/components/shared/status-badge';
 import { FormField } from '@/components/shared/form-field';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -28,6 +29,12 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Organization } from '@/types';
+import { cn } from '@/lib/utils';
+
+const siteAllocationSchema = z.object({
+  siteId: z.string().min(1),
+  allocatedSpaces: z.coerce.number<number>().int().min(1, 'At least 1 space'),
+});
 
 const orgSchema = z.object({
   name: z.string().min(2, 'Organization name is too short'),
@@ -38,20 +45,41 @@ const orgSchema = z.object({
   adminPhone: z.string().or(z.literal('')),
   address: z.string().or(z.literal('')),
   logoUrl: z.string().url('Enter a valid URL').or(z.literal('')),
-  parkingAllocation: z.coerce.number<number>().int().min(0, 'Cannot be negative'),
+  siteAllocations: z.array(siteAllocationSchema),
 });
 
 type OrgForm = z.infer<typeof orgSchema>;
 
-function OrgFormDialog({ open, onOpenChange, organization }: { open: boolean; onOpenChange: (open: boolean) => void; organization: Organization | null }) {
+function OrgFormDialog({
+  open,
+  onOpenChange,
+  organization,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  organization: Organization | null;
+}) {
   const queryClient = useQueryClient();
   const isEditing = Boolean(organization);
+
+  const { data: capacity, isLoading: capacityLoading } = useQuery({
+    queryKey: ['org-site-capacity', organization?.id ?? 'new'],
+    queryFn: () => organizationsApi.siteCapacity(organization?.id),
+    enabled: open,
+  });
 
   const form = useForm<OrgForm>({
     resolver: zodResolver(orgSchema),
     defaultValues: {
-      name: '', companyName: '', gstNumber: '', adminName: '', adminEmail: '',
-      adminPhone: '', address: '', logoUrl: '', parkingAllocation: 0,
+      name: '',
+      companyName: '',
+      gstNumber: '',
+      adminName: '',
+      adminEmail: '',
+      adminPhone: '',
+      address: '',
+      logoUrl: '',
+      siteAllocations: [],
     },
   });
 
@@ -66,25 +94,89 @@ function OrgFormDialog({ open, onOpenChange, organization }: { open: boolean; on
         adminPhone: organization?.adminPhone ?? '',
         address: organization?.address ?? '',
         logoUrl: organization?.logoUrl ?? '',
-        parkingAllocation: organization?.parkingAllocation ?? 0,
+        siteAllocations:
+          organization?.siteAssignments?.map((a) => ({
+            siteId: a.site.id,
+            allocatedSpaces: a.allocatedSpaces,
+          })) ?? [],
       });
     }
   }, [open, organization, form]);
 
   const mutation = useMutation({
-    mutationFn: (values: OrgForm) =>
-      isEditing && organization
-        ? organizationsApi.update(organization.id, values)
-        : organizationsApi.create(values),
+    mutationFn: (values: OrgForm) => {
+      const payload = {
+        name: values.name,
+        companyName: values.companyName,
+        gstNumber: values.gstNumber,
+        adminName: values.adminName,
+        adminEmail: values.adminEmail,
+        adminPhone: values.adminPhone,
+        address: values.address,
+        logoUrl: values.logoUrl,
+        siteAllocations: values.siteAllocations,
+      };
+      return isEditing && organization
+        ? organizationsApi.update(organization.id, payload)
+        : organizationsApi.create(payload);
+    },
     onSuccess: () => {
       toast.success(
         isEditing ? 'Organization updated' : 'Organization onboarded — login credentials emailed to the admin',
       );
       void queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      void queryClient.invalidateQueries({ queryKey: ['org-site-capacity'] });
       onOpenChange(false);
     },
     onError: (error) => toast.error(getApiErrorMessage(error)),
   });
+
+  const siteAllocations = form.watch('siteAllocations');
+  const totalAllocated = useMemo(
+    () => siteAllocations.reduce((sum, a) => sum + (Number(a.allocatedSpaces) || 0), 0),
+    [siteAllocations],
+  );
+
+  const capacityBySite = useMemo(() => {
+    const map = new Map<string, NonNullable<typeof capacity>[number]>();
+    capacity?.forEach((c) => map.set(c.siteId, c));
+    return map;
+  }, [capacity]);
+
+  const toggleSite = (siteId: string, remaining: number) => {
+    const current = form.getValues('siteAllocations');
+    const exists = current.find((a) => a.siteId === siteId);
+    if (exists) {
+      form.setValue(
+        'siteAllocations',
+        current.filter((a) => a.siteId !== siteId),
+        { shouldValidate: true },
+      );
+      return;
+    }
+    if (remaining < 1) {
+      toast.error('This site has no remaining capacity');
+      return;
+    }
+    form.setValue(
+      'siteAllocations',
+      [...current, { siteId, allocatedSpaces: Math.min(1, remaining) }],
+      { shouldValidate: true },
+    );
+  };
+
+  const setSpaces = (siteId: string, value: number, max: number) => {
+    const current = form.getValues('siteAllocations');
+    form.setValue(
+      'siteAllocations',
+      current.map((a) =>
+        a.siteId === siteId
+          ? { ...a, allocatedSpaces: Math.max(1, Math.min(max, Number.isFinite(value) ? value : 1)) }
+          : a,
+      ),
+      { shouldValidate: true },
+    );
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -93,8 +185,8 @@ function OrgFormDialog({ open, onOpenChange, organization }: { open: boolean; on
           <DialogTitle>{isEditing ? 'Edit organization' : 'Onboard organization'}</DialogTitle>
           <DialogDescription>
             {isEditing
-              ? 'Update organization details.'
-              : 'An admin login is created automatically and credentials are emailed to the admin.'}
+              ? 'Update organization details and per-site parking allocations.'
+              : 'An admin login is created automatically. Assign sites and spaces below.'}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={form.handleSubmit((values) => mutation.mutate(values))} className="space-y-4">
@@ -107,9 +199,6 @@ function OrgFormDialog({ open, onOpenChange, organization }: { open: boolean; on
             </FormField>
             <FormField label="GST number" htmlFor="o-gst" error={form.formState.errors.gstNumber?.message}>
               <Input id="o-gst" placeholder="29ABCDE1234F1Z5" {...form.register('gstNumber')} />
-            </FormField>
-            <FormField label="Parking space allocation" htmlFor="o-allocation" error={form.formState.errors.parkingAllocation?.message} required>
-              <Input id="o-allocation" type="number" min={0} {...form.register('parkingAllocation')} />
             </FormField>
             <FormField label="Admin name" htmlFor="o-admin" error={form.formState.errors.adminName?.message} required>
               <Input id="o-admin" placeholder="Priya Sharma" {...form.register('adminName')} />
@@ -127,11 +216,96 @@ function OrgFormDialog({ open, onOpenChange, organization }: { open: boolean; on
           <FormField label="Address" htmlFor="o-address" error={form.formState.errors.address?.message}>
             <Textarea id="o-address" rows={2} placeholder="Registered office address" {...form.register('address')} />
           </FormField>
+
+          <FormField
+            label="Site allocations"
+            error={form.formState.errors.siteAllocations?.message ?? form.formState.errors.siteAllocations?.root?.message}
+          >
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded-xl border border-border p-3">
+              {capacityLoading ? (
+                <p className="text-sm text-muted-foreground">Loading site capacity…</p>
+              ) : capacity?.length ? (
+                capacity.map((site) => {
+                  const allocation = siteAllocations.find((a) => a.siteId === site.siteId);
+                  const selected = Boolean(allocation);
+                  const maxForThisOrg = site.remaining;
+                  const overLimit = selected && (allocation?.allocatedSpaces ?? 0) > maxForThisOrg;
+
+                  return (
+                    <div
+                      key={site.siteId}
+                      className={cn(
+                        'rounded-lg border px-3 py-2.5 transition-colors',
+                        selected ? 'border-brand/40 bg-brand/5' : 'border-transparent hover:bg-muted/50',
+                        site.remaining < 1 && !selected && 'opacity-50',
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          disabled={site.remaining < 1 && !selected}
+                          onChange={() => toggleSite(site.siteId, site.remaining)}
+                          className="mt-1 size-4 rounded border-border"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-medium">{site.siteName}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {site.siteCode} · capacity {site.totalCapacity} ·{' '}
+                                {site.allocatedToOthers} taken by others ·{' '}
+                                <span className={site.remaining > 0 ? 'text-brand' : 'text-destructive'}>
+                                  {site.remaining} left
+                                </span>
+                              </p>
+                            </div>
+                            {selected ? (
+                              <div className="flex items-center gap-2">
+                                <label className="text-xs text-muted-foreground">Spaces</label>
+                                <Input
+                                  type="number"
+                                  min={1}
+                                  max={maxForThisOrg}
+                                  className="h-8 w-20"
+                                  value={allocation?.allocatedSpaces ?? 1}
+                                  onChange={(e) => setSpaces(site.siteId, Number(e.target.value), maxForThisOrg)}
+                                />
+                              </div>
+                            ) : null}
+                          </div>
+                          {overLimit ? (
+                            <p className="mt-1 text-xs text-destructive">
+                              Only {maxForThisOrg} space{maxForThisOrg === 1 ? '' : 's'} available on this site.
+                            </p>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <p className="text-sm text-muted-foreground">No active sites available. Create a site first.</p>
+              )}
+            </div>
+            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+              <span>Employees can only park at assigned sites, within the spaces you allocate.</span>
+              <span className="font-medium text-foreground tabular-nums">Total allocated: {totalAllocated}</span>
+            </div>
+          </FormField>
+
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" loading={mutation.isPending}>
+            <Button
+              type="submit"
+              loading={mutation.isPending}
+              disabled={siteAllocations.some((a) => {
+                const remaining = capacityBySite.get(a.siteId)?.remaining ?? 0;
+                return a.allocatedSpaces > remaining;
+              })}
+            >
               {isEditing ? 'Save changes' : 'Onboard organization'}
             </Button>
           </DialogFooter>
@@ -158,6 +332,7 @@ export function OrganizationsPage() {
     onSuccess: () => {
       toast.success('Organization deleted');
       void queryClient.invalidateQueries({ queryKey: ['organizations'] });
+      void queryClient.invalidateQueries({ queryKey: ['org-site-capacity'] });
       setDeleting(null);
     },
     onError: (error) => toast.error(getApiErrorMessage(error)),
@@ -200,8 +375,26 @@ export function OrganizationsPage() {
       ),
     },
     { key: 'employees', header: 'Employees', render: (org) => <span className="tabular-nums">{org._count?.employees ?? 0}</span> },
-    { key: 'parkings', header: 'Parkings', render: (org) => <span className="tabular-nums">{org._count?.parkingEntries ?? 0}</span> },
-    { key: 'allocation', header: 'Allocation', render: (org) => <span className="tabular-nums">{org.parkingAllocation}</span> },
+    {
+      key: 'sites',
+      header: 'Sites',
+      render: (org) => (
+        <div className="flex flex-wrap gap-1">
+          {org.siteAssignments?.length ? (
+            org.siteAssignments.map((a) => (
+              <Badge key={a.id} variant="outline" className="gap-1">
+                <MapPin className="size-3" />
+                {a.site.name}
+                <span className="tabular-nums text-muted-foreground">· {a.allocatedSpaces}</span>
+              </Badge>
+            ))
+          ) : (
+            <span className="text-xs text-muted-foreground">No sites assigned</span>
+          )}
+        </div>
+      ),
+    },
+    { key: 'allocation', header: 'Total spaces', render: (org) => <span className="tabular-nums">{org.parkingAllocation}</span> },
     { key: 'status', header: 'Status', render: (org) => <ActiveBadge isActive={org.isActive} /> },
     {
       key: 'actions',
@@ -235,7 +428,7 @@ export function OrganizationsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Organizations"
-        description="Onboard organizations and manage their parking allocations."
+        description="Onboard organizations and allocate parking spaces per site."
         actions={
           <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
             <Plus /> Onboard organization

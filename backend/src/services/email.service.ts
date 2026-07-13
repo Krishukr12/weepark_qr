@@ -1,6 +1,8 @@
+import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
 import { env } from '../config/env';
 import {
+  BRAND_LOGO_CID,
   organizationWelcomeTemplate,
   passwordResetRequestTemplate,
   passwordResetSuccessTemplate,
@@ -28,6 +30,14 @@ function getTransporter(): Transporter | null {
   return transporter;
 }
 
+function brandLogoAttachment() {
+  return {
+    filename: 'icon-dark.png',
+    path: path.join(__dirname, '../../assets/icon-dark.png'),
+    cid: BRAND_LOGO_CID,
+  };
+}
+
 async function sendMail(options: MailOptions): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
@@ -42,7 +52,11 @@ async function sendMail(options: MailOptions): Promise<void> {
     return;
   }
   try {
-    await transport.sendMail({ from: env.EMAIL_FROM, ...options });
+    await transport.sendMail({
+      from: env.EMAIL_FROM,
+      ...options,
+      attachments: [brandLogoAttachment()],
+    });
   } catch (error) {
     console.error(`Failed to send email to ${options.to}:`, error);
   }
@@ -58,7 +72,7 @@ export const emailService = {
   }): Promise<void> {
     await sendMail({
       to: params.to,
-      subject: `Welcome to WeePark — ${params.companyName}`,
+      subject: `Welcome to weepark — ${params.companyName}`,
       html: organizationWelcomeTemplate({ ...params, loginUrl: `${env.CLIENT_URL}/login` }),
     });
   },
@@ -66,7 +80,7 @@ export const emailService = {
   async sendValetCredentials(params: { to: string; name: string; email: string; password: string }): Promise<void> {
     await sendMail({
       to: params.to,
-      subject: 'Your WeePark Valet Account',
+      subject: 'Your weepark valet account',
       html: valetCredentialsTemplate({ ...params, loginUrl: `${env.CLIENT_URL}/login` }),
     });
   },
@@ -74,7 +88,7 @@ export const emailService = {
   async sendPasswordResetRequest(params: { to: string; name: string; token: string }): Promise<void> {
     await sendMail({
       to: params.to,
-      subject: 'Reset your WeePark password',
+      subject: 'Reset your weepark password',
       html: passwordResetRequestTemplate({
         name: params.name,
         resetUrl: `${env.CLIENT_URL}/reset-password?token=${params.token}`,
@@ -85,7 +99,7 @@ export const emailService = {
   async sendPasswordResetSuccess(params: { to: string; name: string }): Promise<void> {
     await sendMail({
       to: params.to,
-      subject: 'Your WeePark password was changed',
+      subject: 'Your weepark password was changed',
       html: passwordResetSuccessTemplate({ name: params.name, loginUrl: `${env.CLIENT_URL}/login` }),
     });
   },

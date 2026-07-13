@@ -9,15 +9,17 @@ import type { CreateSiteInput, UpdateSiteInput } from '../validators/site.valida
 
 export const siteController = {
   list: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
     const params = getPagination(req);
     const isActive =
       req.query.isActive === 'true' ? true : req.query.isActive === 'false' ? false : undefined;
-    const result = await siteService.list({ ...params, isActive });
+    const result = await siteService.list(req.user, { ...params, isActive });
     sendPaginated(res, result);
   }),
 
   getById: asyncHandler(async (req: Request, res: Response) => {
-    const site = await siteService.getById(param(req, 'id'));
+    if (!req.user) throw ApiError.unauthorized();
+    const site = await siteService.getById(req.user, param(req, 'id'));
     sendSuccess(res, site);
   }),
 

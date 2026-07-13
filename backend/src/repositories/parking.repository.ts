@@ -113,6 +113,12 @@ export const parkingRepository = {
     return prisma.parkingEntry.count({ where: { siteId, status: { in: ACTIVE_STATUSES } } });
   },
 
+  countActiveForOrgInSite(organizationId: string, siteId: string): Promise<number> {
+    return prisma.parkingEntry.count({
+      where: { organizationId, siteId, status: { in: ACTIVE_STATUSES } },
+    });
+  },
+
   countToday(where: Prisma.ParkingEntryWhereInput = {}): Promise<number> {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);

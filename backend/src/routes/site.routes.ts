@@ -10,7 +10,7 @@ export const siteRoutes = Router();
 siteRoutes.use(authenticate);
 
 siteRoutes.get('/', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'VALET'), siteController.list);
-siteRoutes.get('/:id', authorize('SUPER_ADMIN', 'VALET'), siteController.getById);
+siteRoutes.get('/:id', authorize('SUPER_ADMIN', 'ORG_ADMIN', 'VALET'), siteController.getById);
 siteRoutes.get('/:id/qr', authorize('SUPER_ADMIN'), siteController.downloadQr);
 siteRoutes.post('/', authorize('SUPER_ADMIN'), validate({ body: createSiteSchema }), siteController.create);
 siteRoutes.patch('/:id', authorize('SUPER_ADMIN'), validate({ body: updateSiteSchema }), siteController.update);

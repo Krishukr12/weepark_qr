@@ -13,15 +13,25 @@ export const organizationController = {
     sendPaginated(res, result);
   }),
 
+  /** Remaining capacity per site — used when assigning allocations to an org. */
+  siteCapacity: asyncHandler(async (req: Request, res: Response) => {
+    const excludeOrganizationId =
+      typeof req.query.excludeOrganizationId === 'string' ? req.query.excludeOrganizationId : undefined;
+    const summaries = await organizationService.getSiteCapacitySummaries(excludeOrganizationId);
+    sendSuccess(res, summaries);
+  }),
+
   /** Public list for the QR quick-registration organization dropdown. */
-  listPublic: asyncHandler(async (_req: Request, res: Response) => {
-    const orgs = await organizationService.listActive();
+  listPublic: asyncHandler(async (req: Request, res: Response) => {
+    const siteCode = typeof req.query.siteCode === 'string' ? req.query.siteCode : undefined;
+    const orgs = siteCode
+      ? await organizationService.listActiveForSite(siteCode)
+      : await organizationService.listActive();
     sendSuccess(res, orgs);
   }),
 
   getById: asyncHandler(async (req: Request, res: Response) => {
     if (!req.user) throw ApiError.unauthorized();
-    // Org admins can only fetch their own organization.
     if (req.user.role === 'ORG_ADMIN' && req.user.organizationId !== param(req, 'id')) {
       throw ApiError.forbidden('You can only access your own organization');
     }
@@ -46,7 +56,12 @@ export const organizationController = {
     if (req.user.role === 'ORG_ADMIN' && req.user.organizationId !== param(req, 'id')) {
       throw ApiError.forbidden('You can only update your own organization');
     }
-    const org = await organizationService.update(param(req, 'id'), req.body as UpdateOrganizationInput, req.user.id);
+    const body = req.body as UpdateOrganizationInput;
+    const input: UpdateOrganizationInput =
+      req.user.role === 'ORG_ADMIN'
+        ? { ...body, siteAllocations: undefined, isActive: undefined }
+        : body;
+    const org = await organizationService.update(param(req, 'id'), input, req.user.id);
     sendSuccess(res, org, 200, 'Organization updated successfully');
   }),
 
@@ -54,5 +69,26 @@ export const organizationController = {
     if (!req.user) throw ApiError.unauthorized();
     await organizationService.remove(param(req, 'id'), req.user.id);
     sendSuccess(res, null, 200, 'Organization deleted successfully');
+  }),
+
+  assignSite: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
+    const allocatedSpaces = Number((req.body as { allocatedSpaces?: number }).allocatedSpaces);
+    if (!Number.isInteger(allocatedSpaces) || allocatedSpaces < 1) {
+      throw ApiError.badRequest('allocatedSpaces must be a positive integer');
+    }
+    const org = await organizationService.assignSite(
+      param(req, 'id'),
+      param(req, 'siteId'),
+      allocatedSpaces,
+      req.user.id,
+    );
+    sendSuccess(res, org, 200, 'Site assigned to organization');
+  }),
+
+  unassignSite: asyncHandler(async (req: Request, res: Response) => {
+    if (!req.user) throw ApiError.unauthorized();
+    const org = await organizationService.unassignSite(param(req, 'id'), param(req, 'siteId'), req.user.id);
+    sendSuccess(res, org, 200, 'Site unassigned from organization');
   }),
 };

@@ -23,7 +23,7 @@ export interface NavItem {
 
 export const navItems: NavItem[] = [
   { label: 'Dashboard', path: '/', icon: LayoutDashboard, roles: ['SUPER_ADMIN', 'ORG_ADMIN', 'VALET'] },
-  { label: 'Sites', path: '/sites', icon: MapPin, roles: ['SUPER_ADMIN', 'VALET'] },
+  { label: 'Sites', path: '/sites', icon: MapPin, roles: ['SUPER_ADMIN', 'ORG_ADMIN', 'VALET'] },
   { label: 'Organizations', path: '/organizations', icon: Building2, roles: ['SUPER_ADMIN'] },
   { label: 'Employees', path: '/employees', icon: Users, roles: ['SUPER_ADMIN', 'ORG_ADMIN'] },
   { label: 'Vehicles', path: '/vehicles', icon: Car, roles: ['SUPER_ADMIN', 'ORG_ADMIN'] },

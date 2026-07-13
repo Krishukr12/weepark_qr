@@ -21,7 +21,7 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   SMTP_USER: z.string().optional().default(''),
   SMTP_PASS: z.string().optional().default(''),
-  EMAIL_FROM: z.string().default('WeePark <no-reply@weepark.io>'),
+  EMAIL_FROM: z.string().default('weepark <no-reply@weepark.in>'),
   RATE_LIMIT_WINDOW_MS: z.coerce.number().default(15 * 60 * 1000),
   RATE_LIMIT_MAX: z.coerce.number().default(300),
 });
