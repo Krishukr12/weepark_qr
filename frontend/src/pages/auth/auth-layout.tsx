@@ -1,15 +1,35 @@
-import type { ReactNode } from 'react';
-import { motion } from 'framer-motion';
-import { MapPin, QrCode, Zap } from 'lucide-react';
-import { BrandMark } from '@/components/layout/sidebar';
+import type { ReactNode } from "react";
+import { motion } from "framer-motion";
+import { MapPin, QrCode, Zap } from "lucide-react";
+import { BrandMark } from "@/components/layout/sidebar";
 
 const highlights = [
-  { icon: QrCode, title: 'QR-first parking', text: 'Employees scan a site QR and park in seconds — no app installs.' },
-  { icon: Zap, title: 'Real-time pickups', text: 'Valets get instant pickup requests the moment "GET MY CAR" is tapped.' },
-  { icon: MapPin, title: 'Multi-site control', text: 'Capacity, occupancy and valet coverage across every location.' },
+  {
+    icon: QrCode,
+    title: "QR-first parking",
+    text: "Employees scan a site QR and park in seconds — no app installs.",
+  },
+  {
+    icon: Zap,
+    title: "Real-time pickups",
+    text: 'Valets get instant pickup requests the moment "GET MY CAR" is tapped.',
+  },
+  {
+    icon: MapPin,
+    title: "Multi-site control",
+    text: "Capacity, occupancy and valet coverage across every location.",
+  },
 ];
 
-export function AuthLayout({ title, description, children }: { title: string; description: string; children: ReactNode }) {
+export function AuthLayout({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description: string;
+  children: ReactNode;
+}) {
   return (
     <div className="grid min-h-dvh lg:grid-cols-2">
       {/* Brand panel */}
@@ -18,7 +38,7 @@ export function AuthLayout({ title, description, children }: { title: string; de
           className="pointer-events-none absolute inset-0 opacity-40"
           style={{
             background:
-              'radial-gradient(600px circle at 20% 20%, oklch(0.72 0.17 160 / 0.25), transparent 45%), radial-gradient(700px circle at 80% 80%, oklch(0.55 0.15 250 / 0.2), transparent 50%)',
+              "radial-gradient(600px circle at 20% 20%, oklch(0.72 0.17 160 / 0.25), transparent 45%), radial-gradient(700px circle at 80% 80%, oklch(0.55 0.15 250 / 0.2), transparent 50%)",
           }}
         />
         <BrandMark onDark className="relative" />
@@ -51,7 +71,9 @@ export function AuthLayout({ title, description, children }: { title: string; de
             ))}
           </div>
         </div>
-        <p className="relative text-xs text-white/40">© {new Date().getFullYear()} WeePark · Smart Parking Management</p>
+        <p className="relative text-xs text-white/40">
+          © {new Date().getFullYear()} WeePark · Smart Parking Management
+        </p>
       </div>
 
       {/* Form panel */}
