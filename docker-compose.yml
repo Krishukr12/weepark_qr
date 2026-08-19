@@ -35,8 +35,8 @@ services:
       DATABASE_URL: postgresql://weepark:weepark@postgres:5432/weepark?schema=public
       CLIENT_URL: http://localhost:8080
       API_URL: http://localhost:4000
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET (32+ chars)}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET (32+ chars, different from access)}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-weepark-local-access-secret-min-32-chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-weepark-local-refresh-secret-min-32-ch}
       ENFORCE_HTTPS: 'false'
     ports:
       - '4000:4000'

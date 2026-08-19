@@ -82,8 +82,13 @@ Builds and runs Postgres + API + Nginx-served frontend:
 Local stack (Postgres published on 5434 for the host Prisma CLI):
 
 ```bash
-JWT_ACCESS_SECRET=<random-32+chars> JWT_REFRESH_SECRET=<random-32+chars> \
-  docker compose --profile full up -d --build
+docker compose up -d postgres
+```
+
+Full local stack (Postgres + API + Nginx frontend). JWT defaults exist in compose for local only; override them if you want:
+
+```bash
+docker compose --profile full up -d --build
 ```
 
 Production-oriented stack (Postgres is not published; unique DB credentials required):
