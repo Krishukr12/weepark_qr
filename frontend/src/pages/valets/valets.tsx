@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { MoreHorizontal, Pencil, Plus, Power, UserCog } from 'lucide-react';
 import { sitesApi, valetsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { valetSchema, type ValetForm } from '@/lib/form-schemas';
 import { getInitials } from '@/lib/utils';
 import { useListState } from '@/hooks/use-list-state';
 import { PageHeader } from '@/components/shared/page-header';
@@ -28,22 +28,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Valet } from '@/types';
-
-const valetSchema = z.object({
-  name: z.string().min(2, 'Name is too short'),
-  email: z.string().email('Enter a valid email'),
-  phone: z.string().min(6, 'Enter a valid phone number'),
-  password: z
-    .string()
-    .min(8, 'At least 8 characters')
-    .regex(/[A-Z]/, 'Include an uppercase letter')
-    .regex(/[0-9]/, 'Include a number')
-    .or(z.literal('')),
-  photoUrl: z.string().url('Enter a valid URL').or(z.literal('')),
-  siteIds: z.array(z.string()),
-});
-
-type ValetForm = z.infer<typeof valetSchema>;
 
 function ValetFormDialog({ open, onOpenChange, valet }: { open: boolean; onOpenChange: (open: boolean) => void; valet: Valet | null }) {
   const queryClient = useQueryClient();

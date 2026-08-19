@@ -153,16 +153,19 @@ export const swaggerSpec = {
       get: { tags: ['Public'], security: [], summary: 'QR landing: site info + occupancy', responses: { '200': { description: 'Site' }, '404': { description: 'Unknown or inactive site' } } },
     },
     '/public/parking/sites/{siteCode}/lookup': {
-      post: { tags: ['Public'], security: [], summary: 'Lookup vehicle by number (returns owner, org, active parking)', responses: { '200': { description: 'Lookup result' } } },
+      post: { tags: ['Public'], security: [], summary: 'Lookup vehicle by number. Returns a short-lived parkToken, never employee PII.', responses: { '200': { description: 'Lookup result' } } },
     },
     '/public/parking/sites/{siteCode}/register': {
-      post: { tags: ['Public'], security: [], summary: 'Quick-register an unknown vehicle + employee', responses: { '201': { description: 'Registered' } } },
+      post: { tags: ['Public'], security: [], summary: 'Quick-register an unknown vehicle + employee (scoped to the selected organization)', responses: { '201': { description: 'Registered + parkToken' } } },
     },
     '/public/parking/sites/{siteCode}/park': {
-      post: { tags: ['Public'], security: [], summary: 'PARK MY VEHICLE — create parking record', responses: { '201': { description: 'Parked' }, '409': { description: 'Already parked / site full' } } },
+      post: { tags: ['Public'], security: [], summary: 'PARK MY VEHICLE — requires a signed parkToken', responses: { '201': { description: 'Parked + sessionToken' }, '409': { description: 'Already parked / site full' } } },
+    },
+    '/public/parking/session/status': {
+      post: { tags: ['Public'], security: [], summary: 'Parking status for the current sessionToken', responses: { '200': { description: 'Minimal parking projection' } } },
     },
     '/public/pickups/request': {
-      post: { tags: ['Public'], security: [], summary: 'GET MY CAR — create pickup request and notify valets', responses: { '201': { description: 'Requested' } } },
+      post: { tags: ['Public'], security: [], summary: 'GET MY CAR — requires sessionToken + vehicleNumber + ticketCode', responses: { '201': { description: 'Requested' } } },
     },
   },
 } as const;

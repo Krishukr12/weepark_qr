@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Building2, MapPin, MoreHorizontal, Pencil, Plus, Power, Trash2 } from 'lucide-react';
 import { organizationsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { orgSchema, type OrgForm } from '@/lib/form-schemas';
 import { getInitials } from '@/lib/utils';
 import { useListState } from '@/hooks/use-list-state';
 import { PageHeader } from '@/components/shared/page-header';
@@ -30,25 +30,6 @@ import {
 } from '@/components/ui/dropdown-menu';
 import type { Organization } from '@/types';
 import { cn } from '@/lib/utils';
-
-const siteAllocationSchema = z.object({
-  siteId: z.string().min(1),
-  allocatedSpaces: z.coerce.number<number>().int().min(1, 'At least 1 space'),
-});
-
-const orgSchema = z.object({
-  name: z.string().min(2, 'Organization name is too short'),
-  companyName: z.string().min(2, 'Company name is too short'),
-  gstNumber: z.string().or(z.literal('')),
-  adminName: z.string().min(2, 'Admin name is too short'),
-  adminEmail: z.string().email('Enter a valid email'),
-  adminPhone: z.string().or(z.literal('')),
-  address: z.string().or(z.literal('')),
-  logoUrl: z.string().url('Enter a valid URL').or(z.literal('')),
-  siteAllocations: z.array(siteAllocationSchema),
-});
-
-type OrgForm = z.infer<typeof orgSchema>;
 
 function OrgFormDialog({
   open,

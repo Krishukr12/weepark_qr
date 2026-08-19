@@ -8,20 +8,23 @@ import { param } from '../utils/request';
 import { getPagination } from '../utils/pagination';
 import { sendPaginated, sendSuccess } from '../utils/response';
 import { ApiError } from '../utils/apiError';
-import { parkingHistoryFilterSchema, type QuickRegisterInput } from '../validators/parking.validator';
+import {
+  PARKING_SORT_FIELDS,
+  parkingHistoryFilterSchema,
+  type QuickRegisterInput,
+} from '../validators/parking.validator';
 
 export const parkingController = {
-  // ── Authenticated ──────────────────────────────
-
   history: asyncHandler(async (req: Request, res: Response) => {
     if (!req.user) throw ApiError.unauthorized();
     const filter = parkingHistoryFilterSchema.parse(req.query);
-    const result = await parkingService.history(req.user, getPagination(req), filter);
+    const result = await parkingService.history(req.user, getPagination(req, PARKING_SORT_FIELDS), filter);
     sendPaginated(res, result);
   }),
 
   getById: asyncHandler(async (req: Request, res: Response) => {
-    const entry = await parkingService.getById(param(req, 'id'));
+    if (!req.user) throw ApiError.unauthorized();
+    const entry = await parkingService.getById(req.user, param(req, 'id'));
     sendSuccess(res, entry);
   }),
 
@@ -47,8 +50,6 @@ export const parkingController = {
     res.send(buffer);
   }),
 
-  // ── Public QR flow (no auth — physical QR at the gate) ──────────────────────────────
-
   getPublicSite: asyncHandler(async (req: Request, res: Response) => {
     const site = await siteService.getPublicByCode(param(req, 'siteCode'));
     sendSuccess(res, site);
@@ -61,18 +62,19 @@ export const parkingController = {
   }),
 
   quickRegister: asyncHandler(async (req: Request, res: Response) => {
-    const vehicle = await parkingService.quickRegister(param(req, 'siteCode'), req.body as QuickRegisterInput);
-    sendSuccess(res, vehicle, 201, 'Vehicle registered');
+    const result = await parkingService.quickRegister(param(req, 'siteCode'), req.body as QuickRegisterInput);
+    sendSuccess(res, result, 201, 'Vehicle registered');
   }),
 
   parkVehicle: asyncHandler(async (req: Request, res: Response) => {
-    const { vehicleId, notes } = req.body as { vehicleId: string; notes?: string };
-    const entry = await parkingService.parkVehicle(param(req, 'siteCode'), vehicleId, notes);
-    sendSuccess(res, entry, 201, 'Vehicle parked successfully');
+    const { parkToken, notes } = req.body as { parkToken: string; notes?: string };
+    const result = await parkingService.parkVehicle(param(req, 'siteCode'), parkToken, notes);
+    sendSuccess(res, result, 201, 'Vehicle parked successfully');
   }),
 
-  getParkingStatus: asyncHandler(async (req: Request, res: Response) => {
-    const entry = await parkingService.getById(param(req, 'id'));
-    sendSuccess(res, entry);
+  getParkingSession: asyncHandler(async (req: Request, res: Response) => {
+    const { sessionToken } = req.body as { sessionToken: string };
+    const parking = await parkingService.getPublicSession(sessionToken);
+    sendSuccess(res, parking);
   }),
 };

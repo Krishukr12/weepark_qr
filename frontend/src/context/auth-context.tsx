@@ -22,11 +22,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     const bootstrap = async () => {
-      if (!tokenStore.getAccessToken()) {
-        setIsLoading(false);
-        return;
-      }
       try {
+        if (!tokenStore.getAccessToken()) {
+          const refreshed = await authApi.refresh();
+          if (!refreshed) {
+            setIsLoading(false);
+            return;
+          }
+          setUser(refreshed.user);
+          connectSocket();
+          setIsLoading(false);
+          return;
+        }
         const me = await authApi.me();
         setUser(me);
         connectSocket();
@@ -39,7 +46,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     void bootstrap();
   }, []);
 
-  // Global logout signal from the API client (refresh failed).
   useEffect(() => {
     const handler = () => {
       setUser(null);
@@ -52,22 +58,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
     const result = await authApi.login(email, password);
-    tokenStore.setTokens(result.accessToken, result.refreshToken);
+    tokenStore.setAccessToken(result.accessToken);
     setUser(result.user);
     connectSocket();
     return result.user;
   }, []);
 
   const logout = useCallback(async () => {
-    const refreshToken = tokenStore.getRefreshToken();
-    if (refreshToken) {
-      try {
-        await authApi.logout(refreshToken);
-      } catch {
-        // Token may already be revoked — local cleanup still applies.
-      }
+    try {
+      await authApi.logout();
+    } catch {
+      tokenStore.clear();
     }
-    tokenStore.clear();
     disconnectSocket();
     setUser(null);
     queryClient.clear();

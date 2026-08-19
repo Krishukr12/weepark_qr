@@ -6,7 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json && npm run copy:templates",
+    "build": "tsc -p tsconfig.json && pnpm run copy:templates",
     "copy:templates": "cp -r src/templates dist/templates 2>/dev/null || true",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
@@ -15,7 +15,15 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
-    "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run test/unit test/property",
+    "test:integration": "vitest run test/auth test/organizations test/parking test/pickups test/validation test/database test/sockets test/contracts test/smoke test/rbac",
+    "test:security": "vitest run test/security",
+    "test:smoke": "vitest run test/smoke",
+    "test:coverage": "vitest run --coverage",
+    "test:db:setup": "pnpm exec tsx test/global-setup.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -44,6 +52,9 @@
     "swagger-ui-express": "^5.0.1",
     "zod": "^4.4.3"
   },
+  "files": [
+    "dist"
+  ],
   "devDependencies": {
     "@eslint/js": "^9.39.5",
     "@types/bcryptjs": "^2.4.6",
@@ -55,11 +66,17 @@
     "@types/node": "^26.1.1",
     "@types/nodemailer": "^8.0.1",
     "@types/qrcode": "^1.5.6",
+    "@types/supertest": "^7.2.1",
     "@types/swagger-ui-express": "^4.1.8",
+    "@vitest/coverage-v8": "^3.2.7",
     "eslint": "^9.39.5",
+    "fast-check": "^4.9.0",
     "prisma": "^6.19.3",
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.2.2",
     "tsx": "^4.23.0",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.63.0"
+    "typescript-eslint": "^8.63.0",
+    "vitest": "^3.2.7"
   }
 }

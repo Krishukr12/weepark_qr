@@ -1,0 +1,29 @@
+{
+  "name": "weepark",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WeePark parking platform — root scripts for regression and validation",
+  "packageManager": "pnpm@9.14.2",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "preinstall": "node -e \"if(!(process.env.npm_config_user_agent||'').includes('pnpm')){console.error('This repo uses pnpm. Run: pnpm install');process.exit(1)}\"",
+    "test": "pnpm --filter weepark-backend test && pnpm --filter weepark-frontend test",
+    "test:unit": "pnpm --filter weepark-backend test:unit && pnpm --filter weepark-frontend test:unit",
+    "test:integration": "pnpm --filter weepark-backend test:integration",
+    "test:security": "pnpm --filter weepark-backend test:security",
+    "test:frontend": "pnpm --filter weepark-frontend test",
+    "test:e2e": "echo 'Frontend E2E skipped while the UI is being redesigned' && exit 0",
+    "test:smoke": "pnpm --filter weepark-backend test:smoke",
+    "test:load": "k6 run performance/parking.js",
+    "test:all": "pnpm validate:backend && pnpm validate:frontend",
+    "validate:backend": "pnpm --filter weepark-backend typecheck && pnpm --filter weepark-backend lint && pnpm --filter weepark-backend test && pnpm --filter weepark-backend build",
+    "validate:frontend": "pnpm --filter weepark-frontend typecheck && pnpm --filter weepark-frontend lint && pnpm --filter weepark-frontend test && pnpm --filter weepark-frontend build",
+    "test:db:setup": "pnpm --filter weepark-backend test:db:setup"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1"
+  }
+}

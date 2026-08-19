@@ -21,11 +21,18 @@ export type PickupRequestFull = Prisma.PickupRequestGetPayload<typeof pickupIncl
 
 export const pickupRepository = {
   async findMany(
-    params: PaginationParams & { status?: PickupStatus; siteIds?: string[]; acceptedById?: string },
+    params: PaginationParams & { status?: PickupStatus; siteIds?: string[]; acceptedById?: string; organizationId?: string },
   ): Promise<{ items: PickupRequestFull[]; total: number }> {
     const where: Prisma.PickupRequestWhereInput = {
       ...(params.status ? { status: params.status } : {}),
-      ...(params.siteIds ? { parkingEntry: { siteId: { in: params.siteIds } } } : {}),
+      ...(params.siteIds || params.organizationId
+        ? {
+            parkingEntry: {
+              ...(params.siteIds ? { siteId: { in: params.siteIds } } : {}),
+              ...(params.organizationId ? { organizationId: params.organizationId } : {}),
+            },
+          }
+        : {}),
       ...(params.acceptedById ? { acceptedById: params.acceptedById } : {}),
     };
 

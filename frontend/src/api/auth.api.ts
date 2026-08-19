@@ -1,19 +1,32 @@
-import { api } from '@/lib/api';
+import { api, refreshAccessToken } from '@/lib/api';
+import { tokenStore } from '@/lib/token-store';
+import { authResponseSchema, parseResponse, userSchema } from '@/lib/response-schemas';
 import type { ApiEnvelope, AuthResponse, User } from '@/types';
 
 export const authApi = {
   async login(email: string, password: string): Promise<AuthResponse> {
     const { data } = await api.post<ApiEnvelope<AuthResponse>>('/auth/login', { email, password });
-    return data.data;
+    return parseResponse(authResponseSchema, data.data, 'login') as AuthResponse;
   },
 
-  async logout(refreshToken: string): Promise<void> {
-    await api.post('/auth/logout', { refreshToken });
+  async refresh(): Promise<AuthResponse | null> {
+    const token = await refreshAccessToken();
+    if (!token) return null;
+    const me = await authApi.me();
+    return { user: me, accessToken: token };
+  },
+
+  async logout(): Promise<void> {
+    try {
+      await api.post('/auth/logout');
+    } finally {
+      tokenStore.clear();
+    }
   },
 
   async me(): Promise<User> {
     const { data } = await api.get<ApiEnvelope<User>>('/auth/me');
-    return data.data;
+    return parseResponse(userSchema, data.data, 'current user') as User;
   },
 
   async updateProfile(input: { name?: string; phone?: string | null; photoUrl?: string | null }): Promise<User> {

@@ -48,7 +48,6 @@ export interface User {
 export interface AuthResponse {
   user: User;
   accessToken: string;
-  refreshToken: string;
 }
 
 export interface SiteOccupancy {
@@ -91,8 +90,8 @@ export interface SiteDetail extends Site {
 export interface ValetSummary {
   id: string;
   name: string;
-  email: string;
-  phone: string | null;
+  email?: string;
+  phone?: string | null;
   photoUrl: string | null;
   isActive: boolean;
   assignedAt?: string;
@@ -297,12 +296,47 @@ export interface PublicSite {
   occupancy: SiteOccupancy;
 }
 
+export interface PublicVehicleDisplay {
+  vehicleNumber: string;
+  vehicleType: VehicleType | string;
+  brand: string | null;
+  model: string | null;
+  color: string | null;
+  employeeName: string;
+  employeeCode: string;
+  organizationName: string;
+}
+
+export interface PublicParkingStatus {
+  ticketCode: string;
+  status: ParkingStatus;
+  parkedAt: string;
+  pickedUpAt: string | null;
+  durationMinutes: number | null;
+  vehicleNumber: string;
+  vehicleType: VehicleType | string;
+  brand: string | null;
+  model: string | null;
+  color: string | null;
+  employeeName: string;
+  organizationName: string;
+  siteName: string;
+  siteCode: string;
+  valetName: string | null;
+  pickupStatus: string | null;
+  pickupAcceptedByName: string | null;
+}
+
 export interface VehicleLookupResult {
   found: boolean;
-  vehicle: Vehicle | null;
-  activeParking: ParkingEntry | null;
   canParkAtSite: boolean;
-  site: { id: string; name: string; siteCode: string };
+  alreadyParked: boolean;
+  vehicleNumber: string;
+  parkToken?: string;
+  sessionToken?: string;
+  display?: PublicVehicleDisplay;
+  parking?: PublicParkingStatus;
+  site: { name: string; siteCode: string };
 }
 
 export interface ListParams {

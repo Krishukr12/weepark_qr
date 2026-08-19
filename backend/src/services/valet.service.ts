@@ -8,6 +8,7 @@ import { buildPaginatedResult } from '../utils/pagination';
 import { emailService } from './email.service';
 import { notificationService } from './notification.service';
 import { recordAudit } from './audit.service';
+import { revokeAllRefreshTokens } from '../utils/sessions';
 import type { PaginatedResult, PaginationParams } from '../types';
 import type { CreateValetInput, UpdateValetInput } from '../validators/valet.validator';
 
@@ -60,6 +61,10 @@ export const valetService = {
       ...(input.isActive !== undefined ? { isActive: input.isActive } : {}),
     });
 
+    if (input.isActive === false) {
+      await revokeAllRefreshTokens(id);
+    }
+
     if (input.siteIds !== undefined) {
       await valetRepository.setSites(id, input.siteIds);
     }
@@ -72,6 +77,7 @@ export const valetService = {
     const valet = await valetRepository.findById(id);
     if (!valet) throw ApiError.notFound('Valet not found');
     await userRepository.update(id, { isActive: false });
+    await revokeAllRefreshTokens(id);
     await recordAudit({ userId: actorId, action: 'VALET_DEACTIVATED', entity: 'User', entityId: id });
   },
 

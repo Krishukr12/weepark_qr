@@ -1,5 +1,6 @@
 import { io, type Socket } from 'socket.io-client';
 import { tokenStore } from './token-store';
+import { API_ORIGIN } from './api';
 
 let socket: Socket | null = null;
 
@@ -9,7 +10,7 @@ export function connectSocket(): Socket | null {
 
   if (socket?.connected) return socket;
 
-  socket = io('/', {
+  socket = io(API_ORIGIN || '/', {
     auth: { token },
     transports: ['websocket', 'polling'],
     reconnectionAttempts: 5,

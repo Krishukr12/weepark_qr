@@ -2,22 +2,19 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { ArrowLeft, MailCheck } from 'lucide-react';
 import { authApi } from '@/api/auth.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { forgotPasswordSchema, type ForgotPasswordForm } from '@/lib/form-schemas';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/shared/form-field';
 import { AuthLayout } from './auth-layout';
 
-const schema = z.object({ email: z.string().email('Enter a valid email address') });
-type Form = z.infer<typeof schema>;
-
 export function ForgotPasswordPage() {
   const [sent, setSent] = useState(false);
-  const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { email: '' } });
+  const form = useForm<ForgotPasswordForm>({ resolver: zodResolver(forgotPasswordSchema), defaultValues: { email: '' } });
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {

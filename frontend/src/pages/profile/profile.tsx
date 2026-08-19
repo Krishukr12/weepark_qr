@@ -1,11 +1,11 @@
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { BadgeCheck, Mail, Phone } from 'lucide-react';
 import { authApi } from '@/api/auth.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { profileSchema, type ProfileForm } from '@/lib/form-schemas';
 import { getInitials } from '@/lib/utils';
 import { useAuth } from '@/context/auth-context';
 import { PageHeader } from '@/components/shared/page-header';
@@ -15,14 +15,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-
-const profileSchema = z.object({
-  name: z.string().min(2, 'Name is too short'),
-  phone: z.string().or(z.literal('')),
-  photoUrl: z.string().url('Enter a valid URL').or(z.literal('')),
-});
-
-type ProfileForm = z.infer<typeof profileSchema>;
 
 const roleLabels: Record<string, string> = {
   SUPER_ADMIN: 'Super Admin',

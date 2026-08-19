@@ -2,22 +2,15 @@ import { useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '@/context/auth-context';
 import { getApiErrorMessage } from '@/lib/api';
+import { loginSchema, type LoginForm } from '@/lib/form-schemas';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/shared/form-field';
 import { AuthLayout } from './auth-layout';
-
-const loginSchema = z.object({
-  email: z.string().email('Enter a valid email address'),
-  password: z.string().min(1, 'Password is required'),
-});
-
-type LoginForm = z.infer<typeof loginSchema>;
 
 export function LoginPage() {
   const { user, login } = useAuth();

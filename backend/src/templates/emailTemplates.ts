@@ -1,3 +1,5 @@
+import { escapeHtml } from '../utils/html';
+
 /** Inline CID used when Nodemailer attaches assets/icon-dark.png. */
 export const BRAND_LOGO_CID = 'weepark-logo';
 
@@ -48,16 +50,16 @@ const credentialBox = (email: string, password: string): string => `
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#fafafa;border:1px solid #e4e4e7;border-radius:12px;margin:16px 0;">
   <tr><td style="padding:16px 20px;">
     <p style="margin:0 0 8px;font-size:13px;color:#71717a;">Email</p>
-    <p style="margin:0 0 16px;font-size:15px;color:#141b33;font-weight:600;">${email}</p>
+    <p style="margin:0 0 16px;font-size:15px;color:#141b33;font-weight:600;">${escapeHtml(email)}</p>
     <p style="margin:0 0 8px;font-size:13px;color:#71717a;">Temporary password</p>
-    <p style="margin:0;font-size:15px;color:#141b33;font-weight:600;font-family:monospace;">${password}</p>
+    <p style="margin:0;font-size:15px;color:#141b33;font-weight:600;font-family:monospace;">${escapeHtml(password)}</p>
   </td></tr>
 </table>`;
 
 const button = (url: string, label: string): string => `
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin:20px 0;">
   <tr><td style="background:#141b33;border-radius:10px;">
-    <a href="${url}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">${label}</a>
+    <a href="${escapeHtml(url)}" style="display:inline-block;padding:12px 28px;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;">${escapeHtml(label)}</a>
   </td></tr>
 </table>`;
 
@@ -69,9 +71,9 @@ export function organizationWelcomeTemplate(params: {
   loginUrl: string;
 }): string {
   return baseLayout(
-    `Welcome aboard, ${params.companyName}!`,
-    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${params.adminName},</p>
-     <p style="font-size:14px;color:#3f3f46;line-height:1.6;">Your organization <strong>${params.companyName}</strong> has been onboarded to <strong>weepark</strong>. Use the credentials below to sign in and manage your employees, vehicles and parking activity.</p>
+    `Welcome aboard, ${escapeHtml(params.companyName)}!`,
+    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${escapeHtml(params.adminName)},</p>
+     <p style="font-size:14px;color:#3f3f46;line-height:1.6;">Your organization <strong>${escapeHtml(params.companyName)}</strong> has been onboarded to <strong>weepark</strong>. Use the credentials below to sign in and manage your employees, vehicles and parking activity.</p>
      ${credentialBox(params.email, params.password)}
      ${button(params.loginUrl, 'Sign in to weepark')}
      <p style="font-size:13px;color:#71717a;line-height:1.6;">For security, please change your password after your first login.</p>`,
@@ -86,7 +88,7 @@ export function valetCredentialsTemplate(params: {
 }): string {
   return baseLayout(
     'Your valet account is ready',
-    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${params.name},</p>
+    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${escapeHtml(params.name)},</p>
      <p style="font-size:14px;color:#3f3f46;line-height:1.6;">A <strong>weepark</strong> valet account has been created for you. Sign in to view your assigned sites and manage pickups.</p>
      ${credentialBox(params.email, params.password)}
      ${button(params.loginUrl, 'Sign in to weepark')}`,
@@ -96,7 +98,7 @@ export function valetCredentialsTemplate(params: {
 export function passwordResetRequestTemplate(params: { name: string; resetUrl: string }): string {
   return baseLayout(
     'Reset your password',
-    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${params.name},</p>
+    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${escapeHtml(params.name)},</p>
      <p style="font-size:14px;color:#3f3f46;line-height:1.6;">We received a request to reset your weepark password. Click the button below to choose a new one. This link expires in 30 minutes.</p>
      ${button(params.resetUrl, 'Reset password')}
      <p style="font-size:13px;color:#71717a;line-height:1.6;">If you didn't request this, you can safely ignore this email.</p>`,
@@ -106,7 +108,7 @@ export function passwordResetRequestTemplate(params: { name: string; resetUrl: s
 export function passwordResetSuccessTemplate(params: { name: string; loginUrl: string }): string {
   return baseLayout(
     'Password changed successfully',
-    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${params.name},</p>
+    `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${escapeHtml(params.name)},</p>
      <p style="font-size:14px;color:#3f3f46;line-height:1.6;">Your weepark password was just changed. If this was you, no further action is needed.</p>
      ${button(params.loginUrl, 'Sign in')}
      <p style="font-size:13px;color:#71717a;line-height:1.6;">If you didn't make this change, contact your administrator immediately.</p>`,

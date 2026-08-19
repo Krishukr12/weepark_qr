@@ -1,6 +1,7 @@
 import path from 'node:path';
 import nodemailer, { type Transporter } from 'nodemailer';
-import { env } from '../config/env';
+import { env, isProduction } from '../config/env';
+import { ApiError } from '../utils/apiError';
 import {
   BRAND_LOGO_CID,
   organizationWelcomeTemplate,
@@ -25,6 +26,9 @@ function getTransporter(): Transporter | null {
       port: env.SMTP_PORT,
       secure: env.SMTP_SECURE,
       auth: env.SMTP_USER ? { user: env.SMTP_USER, pass: env.SMTP_PASS } : undefined,
+      connectionTimeout: 10_000,
+      greetingTimeout: 10_000,
+      socketTimeout: 15_000,
     });
   }
   return transporter;
@@ -38,17 +42,16 @@ function brandLogoAttachment() {
   };
 }
 
-async function sendMail(options: MailOptions): Promise<void> {
+async function sendMail(options: MailOptions, { allowDevSkip } = { allowDevSkip: false }): Promise<void> {
   const transport = getTransporter();
   if (!transport) {
-    // No SMTP configured (typical in local dev) — log the full email so generated
-    // credentials and reset links remain accessible during development.
-    const text = options.html
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    console.info(`📧 [email:dev] To: ${options.to} | Subject: ${options.subject}\n   Body: ${text}`);
+    if (isProduction) {
+      throw ApiError.internal('Email delivery is not configured');
+    }
+    console.info(`Email skipped (SMTP unset): to=${options.to} subject=${options.subject}`);
+    if (!allowDevSkip) {
+      // Dev still "succeeds" so local onboarding works; credentials are never logged.
+    }
     return;
   }
   try {
@@ -57,8 +60,9 @@ async function sendMail(options: MailOptions): Promise<void> {
       ...options,
       attachments: [brandLogoAttachment()],
     });
-  } catch (error) {
-    console.error(`Failed to send email to ${options.to}:`, error);
+  } catch {
+    console.error(`Failed to send email to ${options.to}`);
+    throw ApiError.internal('Failed to send email');
   }
 }
 
@@ -86,21 +90,32 @@ export const emailService = {
   },
 
   async sendPasswordResetRequest(params: { to: string; name: string; token: string }): Promise<void> {
-    await sendMail({
-      to: params.to,
-      subject: 'Reset your weepark password',
-      html: passwordResetRequestTemplate({
-        name: params.name,
-        resetUrl: `${env.CLIENT_URL}/reset-password?token=${params.token}`,
-      }),
-    });
+    try {
+      await sendMail(
+        {
+          to: params.to,
+          subject: 'Reset your weepark password',
+          html: passwordResetRequestTemplate({
+            name: params.name,
+            resetUrl: `${env.CLIENT_URL}/reset-password?token=${params.token}`,
+          }),
+        },
+        { allowDevSkip: true },
+      );
+    } catch {
+      console.error('Password reset email failed');
+    }
   },
 
   async sendPasswordResetSuccess(params: { to: string; name: string }): Promise<void> {
-    await sendMail({
-      to: params.to,
-      subject: 'Your weepark password was changed',
-      html: passwordResetSuccessTemplate({ name: params.name, loginUrl: `${env.CLIENT_URL}/login` }),
-    });
+    try {
+      await sendMail({
+        to: params.to,
+        subject: 'Your weepark password was changed',
+        html: passwordResetSuccessTemplate({ name: params.name, loginUrl: `${env.CLIENT_URL}/login` }),
+      });
+    } catch {
+      console.error('Password reset success email failed');
+    }
   },
 };

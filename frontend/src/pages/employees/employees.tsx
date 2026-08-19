@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react';
 import { employeesApi, organizationsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { employeeSchema, type EmployeeForm } from '@/lib/form-schemas';
 import { getInitials } from '@/lib/utils';
 import { useAuth } from '@/context/auth-context';
 import { useListState } from '@/hooks/use-list-state';
@@ -30,18 +30,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { Employee } from '@/types';
-
-const employeeSchema = z.object({
-  employeeCode: z.string().min(1, 'Employee ID is required'),
-  name: z.string().min(2, 'Name is too short'),
-  department: z.string().or(z.literal('')),
-  designation: z.string().or(z.literal('')),
-  phone: z.string().or(z.literal('')),
-  email: z.string().email('Enter a valid email'),
-  organizationId: z.string().optional(),
-});
-
-type EmployeeForm = z.infer<typeof employeeSchema>;
 
 function EmployeeFormDialog({ open, onOpenChange, employee }: { open: boolean; onOpenChange: (open: boolean) => void; employee: Employee | null }) {
   const { user } = useAuth();

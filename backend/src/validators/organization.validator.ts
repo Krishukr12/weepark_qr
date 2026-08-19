@@ -1,8 +1,9 @@
 import { z } from 'zod';
+import { cuidId, optionalPhoneSchema, optionalUrl, strictInt } from './common';
 
 export const siteAllocationSchema = z.object({
-  siteId: z.string().min(1, 'Site is required'),
-  allocatedSpaces: z.coerce.number().int().min(1, 'Allocate at least 1 space').max(100000),
+  siteId: cuidId,
+  allocatedSpaces: strictInt(1, 100000),
 });
 
 export const createOrganizationSchema = z.object({
@@ -11,16 +12,25 @@ export const createOrganizationSchema = z.object({
   gstNumber: z.string().max(20).optional().nullable().or(z.literal('')),
   adminName: z.string().min(2, 'Admin name is too short').max(100),
   adminEmail: z.string().email('Invalid admin email'),
-  adminPhone: z.string().max(20).optional().nullable().or(z.literal('')),
+  adminPhone: optionalPhoneSchema,
   address: z.string().max(500).optional().nullable().or(z.literal('')),
-  logoUrl: z.string().url('Invalid logo URL').optional().nullable().or(z.literal('')),
-  /** Optional total requested spaces; auto-synced from site allocations when provided. */
-  parkingAllocation: z.coerce.number().int().min(0).max(100000).optional().default(0),
+  logoUrl: optionalUrl,
+  parkingAllocation: strictInt(0, 100000).optional().default(0),
   isActive: z.boolean().optional().default(true),
   siteAllocations: z.array(siteAllocationSchema).optional().default([]),
 });
 
 export const updateOrganizationSchema = createOrganizationSchema.partial().omit({ adminEmail: true });
+
+export const assignOrgSiteSchema = z.object({
+  allocatedSpaces: strictInt(1, 100000),
+});
+
+export const publicOrganizationsQuerySchema = z.object({
+  siteCode: z
+    .string()
+    .regex(/^WP-[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{6}$/, 'Invalid site code'),
+});
 
 export type SiteAllocationInput = z.infer<typeof siteAllocationSchema>;
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;

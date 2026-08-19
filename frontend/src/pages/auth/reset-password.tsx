@@ -1,38 +1,22 @@
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { toast } from 'sonner';
 import { ArrowLeft } from 'lucide-react';
 import { authApi } from '@/api/auth.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { resetPasswordSchema, type ResetPasswordForm } from '@/lib/form-schemas';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { FormField } from '@/components/shared/form-field';
 import { AuthLayout } from './auth-layout';
-
-const schema = z
-  .object({
-    password: z
-      .string()
-      .min(8, 'At least 8 characters')
-      .regex(/[A-Z]/, 'Include an uppercase letter')
-      .regex(/[0-9]/, 'Include a number'),
-    confirmPassword: z.string(),
-  })
-  .refine((data) => data.password === data.confirmPassword, {
-    message: 'Passwords do not match',
-    path: ['confirmPassword'],
-  });
-
-type Form = z.infer<typeof schema>;
 
 export function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const token = searchParams.get('token') ?? '';
 
-  const form = useForm<Form>({ resolver: zodResolver(schema), defaultValues: { password: '', confirmPassword: '' } });
+  const form = useForm<ResetPasswordForm>({ resolver: zodResolver(resetPasswordSchema), defaultValues: { password: '', confirmPassword: '' } });
 
   const onSubmit = form.handleSubmit(async (values) => {
     try {

@@ -50,40 +50,49 @@ weepark_qr/
 
 ## Quick Start (Development)
 
-Prerequisites: Node.js 20+, Docker.
+Prerequisites: Node.js 20+, pnpm 9+, Docker.
 
 ```bash
 # 1. Start PostgreSQL (exposed on host port 5434)
 docker compose up -d postgres
 
-# 2. Backend
+# 2. Install workspace dependencies
+pnpm install
+
+# 3. Backend
 cd backend
 cp .env.example .env          # fill in secrets (JWT, SMTP) as needed
-npm install
-npx prisma migrate dev        # create schema
-npm run prisma:seed           # creates the Super Admin account
-npm run dev                   # http://localhost:4000
+pnpm exec prisma migrate dev  # create schema
+pnpm seed                     # creates the Super Admin account
+pnpm dev                      # http://localhost:4000
 
-# 3. Frontend (new terminal)
+# 4. Frontend (new terminal)
 cd frontend
-npm install
-npm run dev                   # http://localhost:5173
+pnpm dev                      # http://localhost:5173
 ```
 
-Default Super Admin (change after first login, or override via `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD`):
+Seed requires `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` (12+ characters) in `backend/.env`. Seed never overwrites an existing user's password.
 
-- Email: `admin@weepark.io`
-- Password: `Admin@1234`
-
-API docs (Swagger): http://localhost:4000/api/docs
+API docs (Swagger): http://localhost:4000/api/docs — disabled when `NODE_ENV=production`.
 
 ## Full Docker Deployment
 
 Builds and runs Postgres + API + Nginx-served frontend:
 
+Local stack (Postgres published on 5434 for the host Prisma CLI):
+
 ```bash
 JWT_ACCESS_SECRET=<random-32+chars> JWT_REFRESH_SECRET=<random-32+chars> \
   docker compose --profile full up -d --build
+```
+
+Production-oriented stack (Postgres is not published; unique DB credentials required):
+
+```bash
+POSTGRES_USER=... POSTGRES_PASSWORD=... \
+JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... \
+CLIENT_URL=https://app.example.com API_URL=https://api.example.com \
+  docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 - Frontend: http://localhost:8080 (proxies `/api` and `/socket.io` to the backend)
@@ -92,7 +101,7 @@ JWT_ACCESS_SECRET=<random-32+chars> JWT_REFRESH_SECRET=<random-32+chars> \
 Migrations are applied automatically on backend container start (`prisma migrate deploy`). Seed the admin once with:
 
 ```bash
-docker compose exec backend npx prisma db seed
+docker compose exec backend pnpm exec prisma db seed
 ```
 
 ## Environment Variables (backend/.env)
@@ -103,8 +112,10 @@ docker compose exec backend npx prisma db seed
 | `PORT` | API port (default 4000) |
 | `CLIENT_URL` | Frontend origin for CORS + email links |
 | `API_URL` | Public API URL used in QR codes |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 32+ char secrets |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | Distinct 32+ char secrets (placeholders are rejected) |
 | `JWT_ACCESS_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN` | e.g. `15m`, `7d` |
+| `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` | Super Admin seed (required; existing password is never reset) |
+| `ENFORCE_HTTPS` | `true` in production behind TLS (HSTS + HTTP redirect) |
 | `SMTP_HOST/PORT/USER/PASS/FROM` | Nodemailer SMTP settings (emails are logged to console if unset) |
 | `RATE_LIMIT_WINDOW_MS` / `RATE_LIMIT_MAX` | API rate limiting |
 
@@ -142,9 +153,17 @@ Helmet, CORS allow-list, rate limiting (stricter for auth endpoints), JWT access
 
 ## Scripts
 
-Backend: `npm run dev`, `build`, `start`, `lint`, `typecheck`, `prisma:migrate`, `prisma:seed`, `prisma:studio`, plus `scripts/smoke.sh` (end-to-end API smoke test).
+From the repo root (pnpm workspace):
 
-Frontend: `npm run dev`, `build`, `preview`, `lint`.
+- `pnpm test:all` — typecheck, lint, tests, and build for backend + frontend
+- `pnpm test:security` — security regression tests
+- `pnpm test:smoke` — critical-path API smoke tests
+- `pnpm test:e2e` — Playwright browser tests
+- `pnpm test:load` — k6 load tests (not part of `test:all`)
+
+Backend: `pnpm --filter weepark-backend dev`, `build`, `start`, `lint`, `typecheck`, `prisma:migrate`, `seed`, `prisma:studio`, plus `backend/scripts/smoke.sh`.
+
+Frontend: `pnpm --filter weepark-frontend dev`, `build`, `preview`, `lint`.
 
 ## Roadmap-Ready Architecture
 

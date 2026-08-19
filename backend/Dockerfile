@@ -1,29 +1,32 @@
+# Build from the repo root:
+#   docker buildx build --platform linux/amd64 --load -f backend/Dockerfile -t weepark-backend-qr:latest .
+#
+# Secrets come from --env-file at runtime, not from this image.
+
 # ---- Build stage ----
 FROM node:20-alpine AS build
 WORKDIR /app
+RUN corepack enable && corepack prepare pnpm@9.14.2 --activate
 
-COPY package*.json ./
-COPY prisma ./prisma
-RUN npm ci
+COPY pnpm-workspace.yaml package.json pnpm-lock.yaml .npmrc ./
+COPY backend/package.json ./backend/
+COPY frontend/package.json ./frontend/
+COPY backend/prisma ./backend/prisma
 
-COPY tsconfig.json ./
-COPY src ./src
-COPY assets ./assets
-RUN npm run build
+RUN pnpm install --frozen-lockfile
+
+COPY backend ./backend
+RUN pnpm --filter weepark-backend exec prisma generate \
+  && pnpm --filter weepark-backend build \
+  && pnpm --filter weepark-backend deploy --prod /out \
+  && cp -r /app/backend/prisma /out/prisma \
+  && pnpm --filter weepark-backend exec prisma generate --schema=/out/prisma/schema.prisma \
+  && test -n "$(find /out -name 'libquery_engine*' -o -name '*query_engine-windows*' | head -1)"
 
 # ---- Production stage ----
 FROM node:20-alpine AS production
 WORKDIR /app
 ENV NODE_ENV=production
-
-COPY package*.json ./
-COPY prisma ./prisma
-RUN npm ci --omit=dev && npx prisma generate
-
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/assets ./assets
-
+COPY --from=build /out ./
 EXPOSE 4000
-
-# Apply migrations then start the server.
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/index.js"]
+CMD ["node", "dist/index.js"]

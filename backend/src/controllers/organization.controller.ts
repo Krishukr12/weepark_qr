@@ -24,9 +24,10 @@ export const organizationController = {
   /** Public list for the QR quick-registration organization dropdown. */
   listPublic: asyncHandler(async (req: Request, res: Response) => {
     const siteCode = typeof req.query.siteCode === 'string' ? req.query.siteCode : undefined;
-    const orgs = siteCode
-      ? await organizationService.listActiveForSite(siteCode)
-      : await organizationService.listActive();
+    if (!siteCode) {
+      throw ApiError.badRequest('siteCode is required');
+    }
+    const orgs = await organizationService.listActiveForSite(siteCode);
     sendSuccess(res, orgs);
   }),
 

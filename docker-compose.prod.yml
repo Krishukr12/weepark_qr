@@ -1,0 +1,66 @@
+# Production-oriented stack.
+# Postgres is not published to the host. Database and JWT secrets are required.
+#
+#   POSTGRES_PASSWORD=... JWT_ACCESS_SECRET=... JWT_REFRESH_SECRET=... \
+#     docker compose -f docker-compose.prod.yml up -d --build
+#
+# Put a TLS terminator (load balancer / Caddy / nginx) in front and set
+# ENFORCE_HTTPS=true so the API redirects HTTP and enables HSTS.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: weepark-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:-weepark}
+    volumes:
+      - weepark_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$POSTGRES_USER" -d "${POSTGRES_DB:-weepark}"']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: weepark-backend-qr
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-weepark}?schema=public
+      CLIENT_URL: ${CLIENT_URL:?Set CLIENT_URL}
+      API_URL: ${API_URL:?Set API_URL}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET (32+ chars)}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:?Set JWT_REFRESH_SECRET (32+ chars, different from access)}
+      ENFORCE_HTTPS: ${ENFORCE_HTTPS:-true}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      EMAIL_FROM: ${EMAIL_FROM:-weepark <no-reply@weepark.in>}
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: weepark-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - '8080:80'
+
+volumes:
+  weepark_pgdata:
