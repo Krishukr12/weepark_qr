@@ -292,6 +292,8 @@ model ParkingEntry {
   pickupRequest PickupRequest?
 
   @@index([siteId, status])
+  @@index([organizationId, parkedAt])
+  @@index([organizationId, siteId, status])
   @@index([organizationId])
   @@index([employeeId])
   @@index([parkedAt])

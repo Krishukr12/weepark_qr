@@ -5,6 +5,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Bell, CheckCheck } from 'lucide-react';
 import { notificationsApi } from '@/api/domain.api';
 import { getNotificationHref } from '@/lib/notification-target';
+import { shouldFetchNavUnreadList } from '@/lib/realtime-invalidation';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -24,6 +25,7 @@ export function NotificationsPopover() {
   const { data: recent, isLoading } = useQuery({
     queryKey: ['notifications', 'recent', 'unread'],
     queryFn: () => notificationsApi.list({ page: 1, limit: 8, unreadOnly: true }),
+    enabled: shouldFetchNavUnreadList(open),
   });
 
   const markAllRead = useMutation({

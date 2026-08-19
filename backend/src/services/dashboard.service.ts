@@ -1,5 +1,5 @@
 import { startOfDay, subDays, format } from 'date-fns';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import { organizationRepository } from '../repositories/organization.repository';
 import { ApiError } from '../utils/apiError';
@@ -55,6 +55,25 @@ async function parkingScope(actor: AuthenticatedUser): Promise<Prisma.ParkingEnt
   return {};
 }
 
+/** SQL predicate matching a Prisma parking scope (org and/or site ids). */
+function scopePredicate(scope: Prisma.ParkingEntryWhereInput): Prisma.Sql {
+  const parts: Prisma.Sql[] = [];
+  if (typeof scope.organizationId === 'string') {
+    parts.push(Prisma.sql`"organizationId" = ${scope.organizationId}`);
+  }
+  if (scope.siteId && typeof scope.siteId === 'object' && 'in' in scope.siteId) {
+    const ids = (scope.siteId.in ?? []) as string[];
+    if (ids.length === 0) return Prisma.sql`FALSE`;
+    parts.push(Prisma.sql`"siteId" IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}`))})`);
+  }
+  if (parts.length === 0) return Prisma.sql`TRUE`;
+  return Prisma.join(parts, ' AND ');
+}
+
+function toCount(value: bigint | number): number {
+  return typeof value === 'bigint' ? Number(value) : value;
+}
+
 export const dashboardService = {
   async getStats(actor: AuthenticatedUser): Promise<DashboardStats> {
     const scope = await parkingScope(actor);
@@ -97,14 +116,6 @@ export const dashboardService = {
         actor.role === 'SUPER_ADMIN' ? prisma.user.count({ where: { role: 'VALET', isActive: true } }) : Promise.resolve(0),
       ]);
 
-    // Occupied count for capacity math must be scoped to visible sites.
-    const occupiedForCapacity = await prisma.parkingEntry.count({
-      where: {
-        ...ACTIVE,
-        ...(actor.role === 'VALET' || actor.role === 'ORG_ADMIN' ? scope : {}),
-      },
-    });
-
     const totalCapacity = sitesAgg._sum.totalCapacity ?? 0;
 
     return {
@@ -112,8 +123,8 @@ export const dashboardService = {
       currentParked,
       todaysPickups,
       pendingPickups,
-      availableSpaces: Math.max(0, totalCapacity - occupiedForCapacity),
-      occupiedSpaces: occupiedForCapacity,
+      availableSpaces: Math.max(0, totalCapacity - currentParked),
+      occupiedSpaces: currentParked,
       totalCapacity,
       organizations,
       employees,
@@ -127,11 +138,22 @@ export const dashboardService = {
   async getParkingTrend(actor: AuthenticatedUser, days = 14): Promise<TrendPoint[]> {
     const scope = await parkingScope(actor);
     const from = startOfDay(subDays(new Date(), days - 1));
+    const pred = scopePredicate(scope);
 
-    const entries = await prisma.parkingEntry.findMany({
-      where: { ...scope, parkedAt: { gte: from } },
-      select: { parkedAt: true, pickedUpAt: true },
-    });
+    const [parkedRows, pickupRows] = await Promise.all([
+      prisma.$queryRaw<Array<{ day: Date; count: bigint | number }>>`
+        SELECT DATE_TRUNC('day', "parkedAt") AS day, COUNT(*)::int AS count
+        FROM parking_entries
+        WHERE "parkedAt" >= ${from} AND ${pred}
+        GROUP BY 1
+      `,
+      prisma.$queryRaw<Array<{ day: Date; count: bigint | number }>>`
+        SELECT DATE_TRUNC('day', "pickedUpAt") AS day, COUNT(*)::int AS count
+        FROM parking_entries
+        WHERE "pickedUpAt" IS NOT NULL AND "pickedUpAt" >= ${from} AND ${pred}
+        GROUP BY 1
+      `,
+    ]);
 
     const buckets = new Map<string, TrendPoint>();
     for (let i = 0; i < days; i++) {
@@ -139,16 +161,15 @@ export const dashboardService = {
       buckets.set(date, { date, parkings: 0, pickups: 0 });
     }
 
-    for (const entry of entries) {
-      const parkedKey = format(entry.parkedAt, 'yyyy-MM-dd');
-      const bucket = buckets.get(parkedKey);
-      if (bucket) bucket.parkings += 1;
-
-      if (entry.pickedUpAt) {
-        const pickedKey = format(entry.pickedUpAt, 'yyyy-MM-dd');
-        const pickupBucket = buckets.get(pickedKey);
-        if (pickupBucket) pickupBucket.pickups += 1;
-      }
+    for (const row of parkedRows) {
+      const key = format(row.day, 'yyyy-MM-dd');
+      const bucket = buckets.get(key);
+      if (bucket) bucket.parkings = toCount(row.count);
+    }
+    for (const row of pickupRows) {
+      const key = format(row.day, 'yyyy-MM-dd');
+      const bucket = buckets.get(key);
+      if (bucket) bucket.pickups = toCount(row.count);
     }
 
     return Array.from(buckets.values());
@@ -158,14 +179,20 @@ export const dashboardService = {
   async getPeakHours(actor: AuthenticatedUser): Promise<PeakHourPoint[]> {
     const scope = await parkingScope(actor);
     const from = subDays(new Date(), 30);
+    const pred = scopePredicate(scope);
 
-    const entries = await prisma.parkingEntry.findMany({
-      where: { ...scope, parkedAt: { gte: from } },
-      select: { parkedAt: true },
-    });
+    const rows = await prisma.$queryRaw<Array<{ hour: number; count: bigint | number }>>`
+      SELECT EXTRACT(HOUR FROM "parkedAt")::int AS hour, COUNT(*)::int AS count
+      FROM parking_entries
+      WHERE "parkedAt" >= ${from} AND ${pred}
+      GROUP BY 1
+    `;
 
     const hours = new Array<number>(24).fill(0);
-    for (const entry of entries) hours[entry.parkedAt.getHours()] += 1;
+    for (const row of rows) {
+      const hour = Number(row.hour);
+      if (hour >= 0 && hour < 24) hours[hour] = toCount(row.count);
+    }
 
     return hours.map((count, hour) => ({
       hour: `${String(hour).padStart(2, '0')}:00`,
@@ -175,8 +202,10 @@ export const dashboardService = {
 
   async getOrganizationUsage(actor: AuthenticatedUser): Promise<UsagePoint[]> {
     if (actor.role !== 'SUPER_ADMIN') return [];
+    const from = subDays(new Date(), 30);
     const grouped = await prisma.parkingEntry.groupBy({
       by: ['organizationId'],
+      where: { parkedAt: { gte: from } },
       _count: { _all: true },
       orderBy: { _count: { organizationId: 'desc' } },
       take: 8,
@@ -196,9 +225,10 @@ export const dashboardService = {
 
   async getSiteUsage(actor: AuthenticatedUser): Promise<UsagePoint[]> {
     const scope = await parkingScope(actor);
+    const from = subDays(new Date(), 30);
     const grouped = await prisma.parkingEntry.groupBy({
       by: ['siteId'],
-      where: scope,
+      where: { ...scope, parkedAt: { gte: from } },
       _count: { _all: true },
       orderBy: { _count: { siteId: 'desc' } },
       take: 8,

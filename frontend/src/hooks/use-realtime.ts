@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { getSocket } from '@/lib/socket';
 import { playNotificationChime, unlockNotificationAudio } from '@/lib/notification-sound';
 import { getNotificationHref } from '@/lib/notification-target';
+import { realtimeInvalidationKeys } from '@/lib/realtime-invalidation';
 import { notificationsApi } from '@/api/domain.api';
 import type { AppNotification } from '@/types';
 
@@ -51,23 +52,8 @@ export function useRealtime(): void {
             }
           : undefined,
       });
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
-      void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
-
-      if (notification.type.startsWith('PICKUP')) {
-        void queryClient.invalidateQueries({ queryKey: ['pickups'] });
-        void queryClient.invalidateQueries({ queryKey: ['parking'] });
-      }
-      if (notification.type === 'VEHICLE_PARKED') {
-        void queryClient.invalidateQueries({ queryKey: ['parking'] });
-        void queryClient.invalidateQueries({ queryKey: ['sites'] });
-      }
-      if (notification.type === 'ORGANIZATION_CREATED') {
-        void queryClient.invalidateQueries({ queryKey: ['organizations'] });
-      }
-      if (notification.type === 'VALET_ASSIGNED' || notification.type === 'VALET_UNASSIGNED') {
-        void queryClient.invalidateQueries({ queryKey: ['sites'] });
-        void queryClient.invalidateQueries({ queryKey: ['valets'] });
+      for (const queryKey of realtimeInvalidationKeys(notification.type)) {
+        void queryClient.invalidateQueries({ queryKey });
       }
     };
 

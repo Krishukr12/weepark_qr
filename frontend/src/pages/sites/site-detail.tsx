@@ -93,13 +93,13 @@ export function SiteDetailPage() {
     queryKey: ['parking', 'site-today', id, todayPage],
     queryFn: () =>
       parkingApi.history({ siteId: id, dateFrom: todayStart.toISOString(), page: todayPage, limit: 10 }),
-    enabled: Boolean(id) && Boolean(site),
+    enabled: Boolean(id),
   });
 
   const history = useQuery({
     queryKey: ['parking', 'site-history', id, historyPage],
     queryFn: () => parkingApi.history({ siteId: id, page: historyPage, limit: 10 }),
-    enabled: Boolean(id) && Boolean(site),
+    enabled: Boolean(id),
   });
 
   const handleDownloadQr = async () => {

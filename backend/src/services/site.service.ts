@@ -27,21 +27,17 @@ export interface OrgSiteAllocation {
   occupancyRate: number;
 }
 
-async function getOccupancy(site: Pick<Site, 'id' | 'totalCapacity'>): Promise<SiteOccupancy> {
-  const occupied = await parkingRepository.countActiveInSite(site.id);
-  const available = Math.max(0, site.totalCapacity - occupied);
+function occupancyFromCount(totalCapacity: number, occupied: number): SiteOccupancy {
+  const available = Math.max(0, totalCapacity - occupied);
   return {
-    totalCapacity: site.totalCapacity,
+    totalCapacity,
     occupied,
     available,
-    occupancyRate: site.totalCapacity > 0 ? Math.round((occupied / site.totalCapacity) * 100) : 0,
+    occupancyRate: totalCapacity > 0 ? Math.round((occupied / totalCapacity) * 100) : 0,
   };
 }
 
-async function getOrgAllocation(organizationId: string, siteId: string): Promise<OrgSiteAllocation | null> {
-  const allocated = await organizationRepository.getAllocation(organizationId, siteId);
-  if (allocated === null) return null;
-  const occupied = await parkingRepository.countActiveForOrgInSite(organizationId, siteId);
+function orgAllocationFromCounts(allocated: number, occupied: number): OrgSiteAllocation {
   const available = Math.max(0, allocated - occupied);
   return {
     allocatedSpaces: allocated,
@@ -49,6 +45,18 @@ async function getOrgAllocation(organizationId: string, siteId: string): Promise
     available,
     occupancyRate: allocated > 0 ? Math.round((occupied / allocated) * 100) : 0,
   };
+}
+
+async function getOccupancy(site: Pick<Site, 'id' | 'totalCapacity'>): Promise<SiteOccupancy> {
+  const occupied = await parkingRepository.countActiveInSite(site.id);
+  return occupancyFromCount(site.totalCapacity, occupied);
+}
+
+async function getOrgAllocation(organizationId: string, siteId: string): Promise<OrgSiteAllocation | null> {
+  const allocated = await organizationRepository.getAllocation(organizationId, siteId);
+  if (allocated === null) return null;
+  const occupied = await parkingRepository.countActiveForOrgInSite(organizationId, siteId);
+  return orgAllocationFromCounts(allocated, occupied);
 }
 
 async function assertCanViewSite(actor: AuthenticatedUser, siteId: string): Promise<void> {
@@ -96,15 +104,30 @@ export const siteService = {
     }
 
     const { items, total } = await siteRepository.findMany({ ...params, siteIds });
-    const enriched = await Promise.all(
-      items.map(async (site) => ({
+    const ids = items.map((site) => site.id);
+    const [occupiedBySite, orgOccupiedBySite, allocations] = await Promise.all([
+      parkingRepository.countActiveBySiteIds(ids),
+      actor.role === 'ORG_ADMIN' && actor.organizationId
+        ? parkingRepository.countActiveByOrgInSiteIds(actor.organizationId, ids)
+        : Promise.resolve(new Map<string, number>()),
+      actor.role === 'ORG_ADMIN' && actor.organizationId
+        ? organizationRepository.getAllocations(actor.organizationId, ids)
+        : Promise.resolve(new Map<string, number>()),
+    ]);
+
+    const enriched = items.map((site) => {
+      const occupancy = occupancyFromCount(site.totalCapacity, occupiedBySite.get(site.id) ?? 0);
+      if (actor.role !== 'ORG_ADMIN' || !actor.organizationId) {
+        return { ...site, occupancy };
+      }
+      const allocated = allocations.get(site.id);
+      return {
         ...site,
-        occupancy: await getOccupancy(site),
-        ...(actor.role === 'ORG_ADMIN' && actor.organizationId
-          ? { orgAllocation: await getOrgAllocation(actor.organizationId, site.id) }
-          : {}),
-      })),
-    );
+        occupancy,
+        orgAllocation:
+          allocated === undefined ? null : orgAllocationFromCounts(allocated, orgOccupiedBySite.get(site.id) ?? 0),
+      };
+    });
     return buildPaginatedResult(enriched, total, params);
   },
 

@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { FilterX } from 'lucide-react';
 import { organizationsApi, sitesApi, valetsApi } from '@/api/domain.api';
+import { FILTER_OPTIONS_STALE_MS } from '@/lib/realtime-invalidation';
 import { useAuth } from '@/context/auth-context';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,18 +41,21 @@ export function ParkingFilters({ filters, onChange }: ParkingFiltersProps) {
     queryKey: ['sites', 'filter-options'],
     queryFn: () => sitesApi.list({ page: 1, limit: 100 }),
     enabled: canSeeSites,
+    staleTime: FILTER_OPTIONS_STALE_MS,
   });
 
   const organizations = useQuery({
     queryKey: ['organizations', 'filter-options'],
     queryFn: () => organizationsApi.list({ page: 1, limit: 100 }),
     enabled: isSuperAdmin,
+    staleTime: FILTER_OPTIONS_STALE_MS,
   });
 
   const valets = useQuery({
     queryKey: ['valets', 'filter-options'],
     queryFn: () => valetsApi.list({ page: 1, limit: 100 }),
     enabled: isSuperAdmin,
+    staleTime: FILTER_OPTIONS_STALE_MS,
   });
 
   const set = (key: keyof ParkingFilterState, value: string | undefined) => {

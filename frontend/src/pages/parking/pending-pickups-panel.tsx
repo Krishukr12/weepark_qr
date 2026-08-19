@@ -20,7 +20,7 @@ function PickupRow({ pickup, highlighted }: { pickup: PickupRequest; highlighted
   const invalidate = () => {
     void queryClient.invalidateQueries({ queryKey: ['pickups'] });
     void queryClient.invalidateQueries({ queryKey: ['parking'] });
-    void queryClient.invalidateQueries({ queryKey: ['dashboard'] });
+    void queryClient.invalidateQueries({ queryKey: ['dashboard', 'stats'] });
   };
 
   const accept = useMutation({
@@ -96,7 +96,8 @@ export function PendingPickupsPanel() {
       ]);
       return [...pending.data, ...accepted.data];
     },
-    refetchInterval: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
   });
 
   const highlightPickupId = useHighlightParam('pickup', Boolean(data));

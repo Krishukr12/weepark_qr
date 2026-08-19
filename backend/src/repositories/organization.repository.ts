@@ -6,7 +6,7 @@ import type { SiteAllocationInput } from '../validators/organization.validator';
 
 const orgWithCounts = {
   include: {
-    _count: { select: { employees: { where: { isGuest: false } }, parkingEntries: true } },
+    _count: { select: { employees: { where: { isGuest: false } }, parkingEntries: { where: { status: { in: ['PARKED', 'PICKUP_REQUESTED', 'PICKUP_IN_PROGRESS'] } } } } },
     siteAssignments: {
       select: {
         id: true,
@@ -111,6 +111,17 @@ export const organizationRepository = {
         select: { allocatedSpaces: true },
       })
       .then((row) => row?.allocatedSpaces ?? null);
+  },
+
+  async getAllocations(organizationId: string, siteIds: string[]): Promise<Map<string, number>> {
+    const map = new Map<string, number>();
+    if (siteIds.length === 0) return map;
+    const rows = await prisma.organizationSiteAssignment.findMany({
+      where: { organizationId, siteId: { in: siteIds } },
+      select: { siteId: true, allocatedSpaces: true },
+    });
+    for (const row of rows) map.set(row.siteId, row.allocatedSpaces);
+    return map;
   },
 
   /**

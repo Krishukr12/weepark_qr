@@ -120,6 +120,30 @@ export const parkingRepository = {
     });
   },
 
+  async countActiveBySiteIds(siteIds: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (siteIds.length === 0) return counts;
+    const rows = await prisma.parkingEntry.groupBy({
+      by: ['siteId'],
+      where: { siteId: { in: siteIds }, status: { in: ACTIVE_STATUSES } },
+      _count: { _all: true },
+    });
+    for (const row of rows) counts.set(row.siteId, row._count._all);
+    return counts;
+  },
+
+  async countActiveByOrgInSiteIds(organizationId: string, siteIds: string[]): Promise<Map<string, number>> {
+    const counts = new Map<string, number>();
+    if (siteIds.length === 0) return counts;
+    const rows = await prisma.parkingEntry.groupBy({
+      by: ['siteId'],
+      where: { organizationId, siteId: { in: siteIds }, status: { in: ACTIVE_STATUSES } },
+      _count: { _all: true },
+    });
+    for (const row of rows) counts.set(row.siteId, row._count._all);
+    return counts;
+  },
+
   countToday(where: Prisma.ParkingEntryWhereInput = {}): Promise<number> {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
