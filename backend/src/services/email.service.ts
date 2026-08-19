@@ -60,8 +60,9 @@ async function sendMail(options: MailOptions, { allowDevSkip } = { allowDevSkip:
       ...options,
       attachments: [brandLogoAttachment()],
     });
-  } catch {
-    console.error(`Failed to send email to ${options.to}`);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'unknown';
+    console.error(`Failed to send email to ${options.to}: ${reason}`);
     throw ApiError.internal('Failed to send email');
   }
 }

@@ -20,6 +20,7 @@ RUN pnpm --filter weepark-backend exec prisma generate \
   && pnpm --filter weepark-backend build \
   && pnpm --filter weepark-backend deploy --prod /out \
   && cp -r /app/backend/prisma /out/prisma \
+  && cp -r /app/backend/assets /out/assets \
   && pnpm --filter weepark-backend exec prisma generate --schema=/out/prisma/schema.prisma \
   && test -n "$(find /out -name 'libquery_engine*' -o -name '*query_engine-windows*' | head -1)"
 
