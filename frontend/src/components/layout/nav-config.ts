@@ -12,7 +12,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
-import type { Role } from '@/types';
+import type { OrganizationClientType, Role } from '@/types';
 
 export interface NavItem {
   label: string;
@@ -35,6 +35,12 @@ export const navItems: NavItem[] = [
   { label: 'Profile', path: '/profile', icon: UserCircle, roles: ['SUPER_ADMIN', 'ORG_ADMIN', 'VALET'] },
 ];
 
-export function navForRole(role: Role): NavItem[] {
-  return navItems.filter((item) => item.roles.includes(role));
+export function navForRole(role: Role, clientType?: OrganizationClientType | null): NavItem[] {
+  return navItems.filter((item) => {
+    if (!item.roles.includes(role)) return false;
+    if (role === 'ORG_ADMIN' && clientType === 'B2C' && (item.path === '/employees' || item.path === '/vehicles')) {
+      return false;
+    }
+    return true;
+  });
 }

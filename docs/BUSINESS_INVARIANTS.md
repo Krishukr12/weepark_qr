@@ -14,3 +14,6 @@ These are enforced in services + Postgres, not only in the UI.
 10. **Refresh cookies rotate atomically.** Reuse of a rotated refresh token revokes the family after the transaction commits.
 11. **Inactive vehicle, employee, organization, or site cannot park.**
 12. **Seed never overwrites an existing password hash** and requires `SEED_ADMIN_EMAIL` + `SEED_ADMIN_PASSWORD` (12+).
+13. **B2B and B2C organizations cannot share a site.** At most one B2C organization may be assigned to a given site.
+14. **Public B2C guest check-in never returns phone or email.** Guest display name is always `Guest`.
+15. **Guest employees (`isGuest`) are excluded from employee/vehicle admin lists and dashboard counts.** Parking history still includes their sessions.

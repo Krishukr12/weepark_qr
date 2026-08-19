@@ -9,7 +9,9 @@ import type { CreateOrganizationInput, UpdateOrganizationInput } from '../valida
 
 export const organizationController = {
   list: asyncHandler(async (req: Request, res: Response) => {
-    const result = await organizationService.list(getPagination(req));
+    const clientType =
+      req.query.clientType === 'B2B' || req.query.clientType === 'B2C' ? req.query.clientType : undefined;
+    const result = await organizationService.list({ ...getPagination(req), clientType });
     sendPaginated(res, result);
   }),
 

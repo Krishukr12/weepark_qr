@@ -8,6 +8,7 @@ interface ReportRow {
   vehicleType: string;
   employee: string;
   employeeCode: string;
+  phone: string;
   organization: string;
   site: string;
   valet: string;
@@ -23,6 +24,7 @@ const COLUMNS: { header: string; key: keyof ReportRow; width: number }[] = [
   { header: 'Vehicle Type', key: 'vehicleType', width: 12 },
   { header: 'Employee', key: 'employee', width: 22 },
   { header: 'Employee ID', key: 'employeeCode', width: 14 },
+  { header: 'Phone', key: 'phone', width: 16 },
   { header: 'Organization', key: 'organization', width: 22 },
   { header: 'Site', key: 'site', width: 22 },
   { header: 'Valet', key: 'valet', width: 18 },
@@ -39,6 +41,7 @@ function toRow(entry: ParkingEntryFull): ReportRow {
     vehicleType: entry.vehicle.vehicleType,
     employee: entry.employee.name,
     employeeCode: entry.employee.employeeCode,
+    phone: entry.employee.phone ?? '',
     organization: entry.organization.name,
     site: entry.site.name,
     valet: entry.valet?.name ?? '',

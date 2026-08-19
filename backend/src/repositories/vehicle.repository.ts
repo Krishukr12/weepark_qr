@@ -13,6 +13,7 @@ const vehicleInclude = {
         email: true,
         phone: true,
         isActive: true,
+        isGuest: true,
         organization: { select: { id: true, name: true, companyName: true, isActive: true } },
       },
     },
@@ -26,8 +27,11 @@ export const vehicleRepository = {
     params: PaginationParams & { organizationId?: string; employeeId?: string },
   ): Promise<{ items: VehicleWithOwner[]; total: number }> {
     const where: Prisma.VehicleWhereInput = {
+      employee: {
+        isGuest: false,
+        ...(params.organizationId ? { organizationId: params.organizationId } : {}),
+      },
       ...(params.employeeId ? { employeeId: params.employeeId } : {}),
-      ...(params.organizationId ? { employee: { organizationId: params.organizationId } } : {}),
       ...(params.search
         ? {
             OR: [

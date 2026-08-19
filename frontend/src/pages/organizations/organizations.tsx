@@ -8,6 +8,7 @@ import { organizationsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
 import { orgSchema, type OrgForm } from '@/lib/form-schemas';
 import { getInitials } from '@/lib/utils';
+import { useSearchParams } from 'react-router-dom';
 import { useListState } from '@/hooks/use-list-state';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
@@ -28,8 +29,45 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { Organization } from '@/types';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import type { Organization, OrganizationClientType, SiteCapacitySummary } from '@/types';
 import { cn } from '@/lib/utils';
+
+function formatOrgNames(orgs: SiteCapacitySummary['occupiedByOrganizations'] | undefined): string {
+  const names = (orgs ?? []).map((org) => org.companyName || org.name);
+  if (names.length === 0) return 'another organization';
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} and ${names[1]}`;
+  return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`;
+}
+
+/** Why a site cannot be assigned to the org being onboarded. Null means it can be selected. */
+function siteAssignmentBlockReason(
+  site: SiteCapacitySummary,
+  clientType: OrganizationClientType,
+  alreadySelected: boolean,
+): string | null {
+  const others = site.occupiedByOrganizations ?? [];
+  const names = formatOrgNames(others);
+  const verb = others.length > 1 ? 'are' : 'is';
+
+  if (!alreadySelected && site.occupiedByClientType === 'B2C') {
+    if (clientType === 'B2C') {
+      return `A B2C client (${names}) is already assigned to this site. Only one B2C organization can use a site.`;
+    }
+    return `This site is reserved for B2C walk-in parking because ${names} ${verb} already assigned. B2B organizations cannot share it.`;
+  }
+
+  if (!alreadySelected && site.occupiedByClientType === 'B2B' && clientType === 'B2C') {
+    return `This site is B2B-only because ${names} ${verb} already assigned. B2C organizations cannot share a B2B site.`;
+  }
+
+  if (!alreadySelected && site.remaining < 1) {
+    return 'This site has no remaining parking spaces.';
+  }
+
+  return null;
+}
 
 function OrgFormDialog({
   open,
@@ -60,6 +98,7 @@ function OrgFormDialog({
       adminPhone: '',
       address: '',
       logoUrl: '',
+      clientType: 'B2B',
       siteAllocations: [],
     },
   });
@@ -75,6 +114,7 @@ function OrgFormDialog({
         adminPhone: organization?.adminPhone ?? '',
         address: organization?.address ?? '',
         logoUrl: organization?.logoUrl ?? '',
+        clientType: organization?.clientType ?? 'B2B',
         siteAllocations:
           organization?.siteAssignments?.map((a) => ({
             siteId: a.site.id,
@@ -96,6 +136,7 @@ function OrgFormDialog({
         address: values.address,
         logoUrl: values.logoUrl,
         siteAllocations: values.siteAllocations,
+        ...(isEditing ? {} : { clientType: values.clientType }),
       };
       return isEditing && organization
         ? organizationsApi.update(organization.id, payload)
@@ -113,6 +154,7 @@ function OrgFormDialog({
   });
 
   const siteAllocations = form.watch('siteAllocations');
+  const clientType = form.watch('clientType');
   const totalAllocated = useMemo(
     () => siteAllocations.reduce((sum, a) => sum + (Number(a.allocatedSpaces) || 0), 0),
     [siteAllocations],
@@ -124,7 +166,20 @@ function OrgFormDialog({
     return map;
   }, [capacity]);
 
-  const toggleSite = (siteId: string, remaining: number) => {
+  useEffect(() => {
+    if (!capacity?.length) return;
+    const current = form.getValues('siteAllocations');
+    const allowed = current.filter((allocation) => {
+      const site = capacityBySite.get(allocation.siteId);
+      if (!site) return true;
+      return siteAssignmentBlockReason(site, clientType, false) === null;
+    });
+    if (allowed.length !== current.length) {
+      form.setValue('siteAllocations', allowed, { shouldValidate: true });
+    }
+  }, [capacity, capacityBySite, clientType, form]);
+
+  const toggleSite = (siteId: string, remaining: number, blocked: string | null) => {
     const current = form.getValues('siteAllocations');
     const exists = current.find((a) => a.siteId === siteId);
     if (exists) {
@@ -133,6 +188,10 @@ function OrgFormDialog({
         current.filter((a) => a.siteId !== siteId),
         { shouldValidate: true },
       );
+      return;
+    }
+    if (blocked) {
+      toast.error(blocked);
       return;
     }
     if (remaining < 1) {
@@ -181,6 +240,31 @@ function OrgFormDialog({
             <FormField label="GST number" htmlFor="o-gst" error={form.formState.errors.gstNumber?.message}>
               <Input id="o-gst" placeholder="29ABCDE1234F1Z5" {...form.register('gstNumber')} />
             </FormField>
+            <FormField label="Client type" error={form.formState.errors.clientType?.message} required>
+              <div className="grid grid-cols-2 gap-2">
+                {(['B2B', 'B2C'] as const).map((type) => {
+                  const selected = form.watch('clientType') === type;
+                  return (
+                    <button
+                      key={type}
+                      type="button"
+                      disabled={isEditing}
+                      onClick={() => form.setValue('clientType', type, { shouldValidate: true })}
+                      className={cn(
+                        'rounded-xl border px-3 py-2 text-left text-sm transition-colors',
+                        selected ? 'border-brand/40 bg-brand/5 font-medium' : 'border-border hover:bg-muted/50',
+                        isEditing && 'cursor-not-allowed opacity-70',
+                      )}
+                    >
+                      <span className="block">{type}</span>
+                      <span className="text-xs font-normal text-muted-foreground">
+                        {type === 'B2B' ? 'Employees and registered vehicles' : 'Walk-in guests: plate + phone'}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </FormField>
             <FormField label="Admin name" htmlFor="o-admin" error={form.formState.errors.adminName?.message} required>
               <Input id="o-admin" placeholder="Priya Sharma" {...form.register('adminName')} />
             </FormField>
@@ -211,23 +295,23 @@ function OrgFormDialog({
                   const selected = Boolean(allocation);
                   const maxForThisOrg = site.remaining;
                   const overLimit = selected && (allocation?.allocatedSpaces ?? 0) > maxForThisOrg;
+                  const blocked = siteAssignmentBlockReason(site, clientType, selected);
 
-                  return (
+                  const row = (
                     <div
-                      key={site.siteId}
                       className={cn(
                         'rounded-lg border px-3 py-2.5 transition-colors',
                         selected ? 'border-brand/40 bg-brand/5' : 'border-transparent hover:bg-muted/50',
-                        site.remaining < 1 && !selected && 'opacity-50',
+                        blocked && 'cursor-not-allowed opacity-50 hover:bg-transparent',
                       )}
                     >
                       <div className="flex items-start gap-3">
                         <input
                           type="checkbox"
                           checked={selected}
-                          disabled={site.remaining < 1 && !selected}
-                          onChange={() => toggleSite(site.siteId, site.remaining)}
-                          className="mt-1 size-4 rounded border-border"
+                          disabled={Boolean(blocked)}
+                          onChange={() => toggleSite(site.siteId, site.remaining, blocked)}
+                          className="mt-1 size-4 rounded border-border disabled:cursor-not-allowed"
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -264,13 +348,26 @@ function OrgFormDialog({
                       </div>
                     </div>
                   );
+
+                  if (!blocked) return <div key={site.siteId}>{row}</div>;
+
+                  return (
+                    <Tooltip key={site.siteId}>
+                      <TooltipTrigger asChild>
+                        <div>{row}</div>
+                      </TooltipTrigger>
+                      <TooltipContent side="top" className="z-[80] max-w-xs whitespace-normal text-left leading-relaxed">
+                        {blocked}
+                      </TooltipContent>
+                    </Tooltip>
+                  );
                 })
               ) : (
                 <p className="text-sm text-muted-foreground">No active sites available. Create a site first.</p>
               )}
             </div>
             <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-              <span>Employees can only park at assigned sites, within the spaces you allocate.</span>
+              <span>Employees can only park at assigned sites, within the spaces you allocate. B2C sites accept walk-in guests instead of employee registration.</span>
               <span className="font-medium text-foreground tabular-nums">Total allocated: {totalAllocated}</span>
             </div>
           </FormField>
@@ -302,11 +399,27 @@ export function OrganizationsPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Organization | null>(null);
   const [deleting, setDeleting] = useState<Organization | null>(null);
+  const [searchParams] = useSearchParams();
+  const highlightOrgId = searchParams.get('highlight');
 
   const { data, isLoading } = useQuery({
     queryKey: ['organizations', params],
     queryFn: () => organizationsApi.list(params),
   });
+
+  const highlightedOrg = useQuery({
+    queryKey: ['organizations', highlightOrgId],
+    queryFn: () => organizationsApi.get(highlightOrgId!),
+    enabled: Boolean(highlightOrgId),
+  });
+
+  const rows = useMemo(() => {
+    const items = data?.data ?? [];
+    const extra = highlightedOrg.data;
+    if (!extra) return items;
+    if (items.some((row) => row.id === extra.id)) return items;
+    return [extra, ...items];
+  }, [data?.data, highlightedOrg.data]);
 
   const deleteMutation = useMutation({
     mutationFn: (id: string) => organizationsApi.remove(id),
@@ -341,6 +454,9 @@ export function OrganizationsPage() {
           <div>
             <p className="font-medium">{org.name}</p>
             <p className="text-xs text-muted-foreground">{org.companyName}</p>
+            <Badge variant={org.clientType === 'B2C' ? 'info' : 'outline'} className="mt-1">
+              {org.clientType}
+            </Badge>
           </div>
         </div>
       ),
@@ -419,8 +535,9 @@ export function OrganizationsPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data}
+        rows={rows}
         rowKey={(org) => org.id}
+        highlightedRowKey={highlightOrgId}
         isLoading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}

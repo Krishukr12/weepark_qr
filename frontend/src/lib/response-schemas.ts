@@ -17,6 +17,7 @@ export const userSchema = z.object({
   role: roleSchema,
   photoUrl: z.string().nullable().optional(),
   organizationId: z.string().nullable(),
+  organizationClientType: z.enum(['B2B', 'B2C']).nullable().optional(),
   isActive: z.boolean(),
   createdAt: z.string().optional(),
 }).passthrough();

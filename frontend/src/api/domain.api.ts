@@ -153,6 +153,12 @@ export const publicApi = {
       await postOne(`/public/parking/sites/${siteCode}/lookup`, { vehicleNumber }),
       'vehicle lookup',
     ) as VehicleLookupResult,
+  guestCheckIn: async (siteCode: string, vehicleNumber: string, phone: string): Promise<VehicleLookupResult> =>
+    parseResponse(
+      vehicleLookupSchema,
+      await postOne(`/public/parking/sites/${siteCode}/guest`, { vehicleNumber, phone }),
+      'guest check-in',
+    ) as VehicleLookupResult,
   quickRegister: async (
     siteCode: string,
     input: Record<string, unknown>,

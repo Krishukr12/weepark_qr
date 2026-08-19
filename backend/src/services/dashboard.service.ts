@@ -80,18 +80,18 @@ export const dashboardService = {
         prisma.employee.count({
           where:
             actor.role === 'ORG_ADMIN'
-              ? { organizationId: actor.organizationId ?? '' }
+              ? { organizationId: actor.organizationId ?? '', isGuest: false }
               : actor.role === 'VALET'
                 ? { id: { in: [] } }
-                : {},
+                : { isGuest: false },
         }),
         prisma.vehicle.count({
           where:
             actor.role === 'ORG_ADMIN'
-              ? { employee: { organizationId: actor.organizationId ?? '' } }
+              ? { employee: { organizationId: actor.organizationId ?? '', isGuest: false } }
               : actor.role === 'VALET'
                 ? { id: { in: [] } }
-                : {},
+                : { employee: { isGuest: false } },
         }),
         prisma.site.count({ where: { isActive: true, ...siteScope } }),
         actor.role === 'SUPER_ADMIN' ? prisma.user.count({ where: { role: 'VALET', isActive: true } }) : Promise.resolve(0),

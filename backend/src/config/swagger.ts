@@ -158,6 +158,9 @@ export const swaggerSpec = {
     '/public/parking/sites/{siteCode}/register': {
       post: { tags: ['Public'], security: [], summary: 'Quick-register an unknown vehicle + employee (scoped to the selected organization)', responses: { '201': { description: 'Registered + parkToken' } } },
     },
+    '/public/parking/sites/{siteCode}/guest': {
+      post: { tags: ['Public'], security: [], summary: 'B2C walk-in check-in: vehicle number + phone. Returns parkToken or existing session.', responses: { '201': { description: 'Checked in + parkToken' }, '200': { description: 'Already parked + sessionToken' } } },
+    },
     '/public/parking/sites/{siteCode}/park': {
       post: { tags: ['Public'], security: [], summary: 'PARK MY VEHICLE — requires a signed parkToken', responses: { '201': { description: 'Parked + sessionToken' }, '409': { description: 'Already parked / site full' } } },
     },

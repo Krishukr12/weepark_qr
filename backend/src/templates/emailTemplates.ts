@@ -69,11 +69,17 @@ export function organizationWelcomeTemplate(params: {
   email: string;
   password: string;
   loginUrl: string;
+  clientType?: 'B2B' | 'B2C';
 }): string {
+  const intro =
+    params.clientType === 'B2C'
+      ? `Your organization <strong>${escapeHtml(params.companyName)}</strong> has been onboarded to <strong>weepark</strong> as a walk-in (B2C) client. Use the credentials below to sign in and view parking activity at your assigned sites.`
+      : `Your organization <strong>${escapeHtml(params.companyName)}</strong> has been onboarded to <strong>weepark</strong>. Use the credentials below to sign in and manage your employees, vehicles and parking activity.`;
+
   return baseLayout(
     `Welcome aboard, ${escapeHtml(params.companyName)}!`,
     `<p style="font-size:14px;color:#3f3f46;line-height:1.6;">Hi ${escapeHtml(params.adminName)},</p>
-     <p style="font-size:14px;color:#3f3f46;line-height:1.6;">Your organization <strong>${escapeHtml(params.companyName)}</strong> has been onboarded to <strong>weepark</strong>. Use the credentials below to sign in and manage your employees, vehicles and parking activity.</p>
+     <p style="font-size:14px;color:#3f3f46;line-height:1.6;">${intro}</p>
      ${credentialBox(params.email, params.password)}
      ${button(params.loginUrl, 'Sign in to weepark')}
      <p style="font-size:13px;color:#71717a;line-height:1.6;">For security, please change your password after your first login.</p>`,

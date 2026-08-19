@@ -62,6 +62,11 @@ enum NotificationType {
   SYSTEM
 }
 
+enum OrganizationClientType {
+  B2B
+  B2C
+}
+
 // ─────────────────────────────────────────────
 // Auth & Users
 // ─────────────────────────────────────────────
@@ -137,10 +142,11 @@ model Organization {
   adminPhone        String?
   address           String?
   logoUrl           String?
-  parkingAllocation Int      @default(0)
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  parkingAllocation Int                   @default(0)
+  clientType        OrganizationClientType @default(B2B)
+  isActive          Boolean               @default(true)
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
 
   users           User[]
   employees       Employee[]
@@ -158,6 +164,7 @@ model Employee {
   designation  String?
   phone        String?
   email        String   @unique
+  isGuest      Boolean  @default(false)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -173,6 +180,7 @@ model Employee {
 
   @@unique([organizationId, employeeCode])
   @@index([organizationId])
+  /// SQL migration adds a partial unique index so one guest phone is unique per org.
   @@map("employees")
 }
 

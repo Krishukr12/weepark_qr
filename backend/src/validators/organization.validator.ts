@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OrganizationClientType } from '@prisma/client';
 import { cuidId, optionalPhoneSchema, optionalUrl, strictInt } from './common';
 
 export const siteAllocationSchema = z.object({
@@ -17,10 +18,13 @@ export const createOrganizationSchema = z.object({
   logoUrl: optionalUrl,
   parkingAllocation: strictInt(0, 100000).optional().default(0),
   isActive: z.boolean().optional().default(true),
+  clientType: z.nativeEnum(OrganizationClientType).optional().default(OrganizationClientType.B2B),
   siteAllocations: z.array(siteAllocationSchema).optional().default([]),
 });
 
-export const updateOrganizationSchema = createOrganizationSchema.partial().omit({ adminEmail: true });
+export const updateOrganizationSchema = createOrganizationSchema
+  .partial()
+  .omit({ adminEmail: true, clientType: true });
 
 export const assignOrgSiteSchema = z.object({
   allocatedSpaces: strictInt(1, 100000),

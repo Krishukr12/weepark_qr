@@ -29,7 +29,7 @@ export const employeeService = {
 
   async getById(actor: AuthenticatedUser, id: string): Promise<EmployeeWithRelations> {
     const employee = await employeeRepository.findById(id);
-    if (!employee) throw ApiError.notFound('Employee not found');
+    if (!employee || employee.isGuest) throw ApiError.notFound('Employee not found');
     if (actor.role === 'ORG_ADMIN' && employee.organizationId !== actor.organizationId) {
       throw ApiError.forbidden('You cannot access employees of another organization');
     }
@@ -43,6 +43,9 @@ export const employeeService = {
 
     const org = await organizationRepository.findById(organizationId);
     if (!org) throw ApiError.notFound('Organization not found');
+    if (org.clientType === 'B2C') {
+      throw ApiError.forbidden('B2C organizations do not manage employees — guests check in at the site QR');
+    }
 
     const existing = await employeeRepository.findByEmail(input.email);
     if (existing) throw ApiError.conflict('An employee with this email already exists');
@@ -63,7 +66,13 @@ export const employeeService = {
   },
 
   async update(actor: AuthenticatedUser, id: string, input: UpdateEmployeeInput): Promise<EmployeeWithRelations> {
-    await this.getById(actor, id); // scope check
+    const employee = await this.getById(actor, id);
+    if (employee.organizationId) {
+      const org = await organizationRepository.findById(employee.organizationId);
+      if (org?.clientType === 'B2C') {
+        throw ApiError.forbidden('B2C organizations do not manage employees — guests check in at the site QR');
+      }
+    }
 
     await employeeRepository.update(id, {
       ...(input.employeeCode !== undefined ? { employeeCode: input.employeeCode } : {}),
@@ -80,7 +89,11 @@ export const employeeService = {
   },
 
   async remove(actor: AuthenticatedUser, id: string): Promise<void> {
-    await this.getById(actor, id); // scope check
+    const employee = await this.getById(actor, id);
+    const org = await organizationRepository.findById(employee.organizationId);
+    if (org?.clientType === 'B2C') {
+      throw ApiError.forbidden('B2C organizations do not manage employees — guests check in at the site QR');
+    }
     await employeeRepository.delete(id);
     await recordAudit({ userId: actor.id, action: 'EMPLOYEE_DELETED', entity: 'Employee', entityId: id });
   },

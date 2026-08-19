@@ -11,6 +11,7 @@ import {
 import {
   idParamsSchema,
   lookupVehicleSchema,
+  guestCheckInSchema,
   parkVehicleSchema,
   parkingHistoryFilterSchema,
   parkingSessionSchema,
@@ -45,6 +46,12 @@ publicParkingRoutes.post(
   publicRegisterLimiter,
   validate({ params: siteCodeParamsSchema, body: quickRegisterSchema }),
   parkingController.quickRegister,
+);
+publicParkingRoutes.post(
+  '/sites/:siteCode/guest',
+  publicRegisterLimiter,
+  validate({ params: siteCodeParamsSchema, body: guestCheckInSchema }),
+  parkingController.guestCheckIn,
 );
 publicParkingRoutes.post(
   '/sites/:siteCode/park',

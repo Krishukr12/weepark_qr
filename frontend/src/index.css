@@ -133,3 +133,19 @@
     scrollbar-color: var(--border) transparent;
   }
 }
+
+@keyframes notification-highlight-pulse {
+  0%,
+  100% {
+    background-color: color-mix(in oklch, var(--brand) 16%, transparent);
+  }
+  50% {
+    background-color: color-mix(in oklch, var(--brand) 30%, transparent);
+  }
+}
+
+.notification-highlight {
+  animation: notification-highlight-pulse 1.15s ease-in-out 4;
+  box-shadow: inset 3px 0 0 var(--brand);
+  background-color: color-mix(in oklch, var(--brand) 16%, transparent) !important;
+}

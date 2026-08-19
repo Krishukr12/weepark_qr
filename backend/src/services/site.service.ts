@@ -8,6 +8,7 @@ import { generateSiteCode } from '../utils/codes';
 import { generateSiteQrDataUrl, generateSiteQrPngBuffer, getSiteParkingUrl } from '../utils/qrcode';
 import { buildPaginatedResult } from '../utils/pagination';
 import { recordAudit } from './audit.service';
+import { getSiteParkingContext, type ParkingMode } from './parking-mode';
 import type { AuthenticatedUser, PaginatedResult, PaginationParams } from '../types';
 import type { CreateSiteInput, UpdateSiteInput } from '../validators/site.validator';
 
@@ -212,10 +213,13 @@ export const siteService = {
   ): Promise<
     Pick<Site, 'id' | 'siteCode' | 'name' | 'address' | 'latitude' | 'longitude' | 'googleMapsLink'> & {
       occupancy: SiteOccupancy;
+      parkingMode: ParkingMode;
     }
   > {
     const site = await siteRepository.findByCode(siteCode);
     if (!site || !site.isActive) throw ApiError.notFound('This parking site does not exist or is inactive');
+
+    const { parkingMode } = await getSiteParkingContext(site.id);
 
     return {
       id: site.id,
@@ -226,6 +230,7 @@ export const siteService = {
       longitude: site.longitude,
       googleMapsLink: site.googleMapsLink,
       occupancy: await getOccupancy(site),
+      parkingMode,
     };
   },
 };

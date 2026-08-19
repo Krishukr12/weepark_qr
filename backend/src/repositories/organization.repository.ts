@@ -1,4 +1,4 @@
-import type { Organization, Prisma } from '@prisma/client';
+import type { Organization, OrganizationClientType, Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma';
 import type { PaginationParams } from '../types';
 import { toSkipTake } from '../utils/pagination';
@@ -6,7 +6,7 @@ import type { SiteAllocationInput } from '../validators/organization.validator';
 
 const orgWithCounts = {
   include: {
-    _count: { select: { employees: true, parkingEntries: true } },
+    _count: { select: { employees: { where: { isGuest: false } }, parkingEntries: true } },
     siteAssignments: {
       select: {
         id: true,
@@ -27,19 +27,26 @@ export interface SiteCapacitySummary {
   totalCapacity: number;
   allocatedToOthers: number;
   remaining: number;
+  occupiedByClientType: 'B2B' | 'B2C' | null;
+  occupiedByOrganizations: { name: string; companyName: string; clientType: 'B2B' | 'B2C' }[];
 }
 
 export const organizationRepository = {
-  async findMany(params: PaginationParams): Promise<{ items: OrganizationWithCounts[]; total: number }> {
-    const where: Prisma.OrganizationWhereInput = params.search
-      ? {
-          OR: [
-            { name: { contains: params.search, mode: 'insensitive' } },
-            { companyName: { contains: params.search, mode: 'insensitive' } },
-            { adminEmail: { contains: params.search, mode: 'insensitive' } },
-          ],
-        }
-      : {};
+  async findMany(
+    params: PaginationParams & { clientType?: OrganizationClientType },
+  ): Promise<{ items: OrganizationWithCounts[]; total: number }> {
+    const where: Prisma.OrganizationWhereInput = {
+      ...(params.clientType ? { clientType: params.clientType } : {}),
+      ...(params.search
+        ? {
+            OR: [
+              { name: { contains: params.search, mode: 'insensitive' } },
+              { companyName: { contains: params.search, mode: 'insensitive' } },
+              { adminEmail: { contains: params.search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
 
     const orderBy: Prisma.OrganizationOrderByWithRelationInput = params.sortBy
       ? { [params.sortBy]: params.sortOrder }
@@ -76,10 +83,10 @@ export const organizationRepository = {
     });
   },
 
-  /** Active organizations assigned to a specific site (for the public QR registration dropdown). */
+  /** Active B2B organizations assigned to a specific site (for the public QR registration dropdown). */
   listActiveForSite(siteId: string): Promise<Pick<Organization, 'id' | 'name' | 'companyName'>[]> {
     return prisma.organization.findMany({
-      where: { isActive: true, siteAssignments: { some: { siteId } } },
+      where: { isActive: true, clientType: 'B2B', siteAssignments: { some: { siteId } } },
       select: { id: true, name: true, companyName: true },
       orderBy: { name: 'asc' },
     });
@@ -119,16 +126,29 @@ export const organizationRepository = {
         siteCode: true,
         totalCapacity: true,
         organizationAssignments: {
-          select: { organizationId: true, allocatedSpaces: true },
+          select: {
+            organizationId: true,
+            allocatedSpaces: true,
+            organization: { select: { name: true, companyName: true, clientType: true } },
+          },
         },
       },
       orderBy: { name: 'asc' },
     });
 
     return sites.map((site) => {
-      const allocatedToOthers = site.organizationAssignments
-        .filter((a) => a.organizationId !== excludeOrganizationId)
-        .reduce((sum, a) => sum + a.allocatedSpaces, 0);
+      const others = site.organizationAssignments.filter((a) => a.organizationId !== excludeOrganizationId);
+      const allocatedToOthers = others.reduce((sum, a) => sum + a.allocatedSpaces, 0);
+      const occupiedByOrganizations = others.map((a) => ({
+        name: a.organization.name,
+        companyName: a.organization.companyName,
+        clientType: a.organization.clientType,
+      }));
+      const occupiedByClientType = occupiedByOrganizations.some((org) => org.clientType === 'B2C')
+        ? ('B2C' as const)
+        : occupiedByOrganizations.length > 0
+          ? ('B2B' as const)
+          : null;
 
       return {
         siteId: site.id,
@@ -137,6 +157,8 @@ export const organizationRepository = {
         totalCapacity: site.totalCapacity,
         allocatedToOthers,
         remaining: Math.max(0, site.totalCapacity - allocatedToOthers),
+        occupiedByClientType,
+        occupiedByOrganizations,
       };
     });
   },

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
@@ -23,6 +24,8 @@ export function ParkingPage() {
   const { search, setSearch, setPage, params } = useListState();
   const [filters, setFilters] = useState<ParkingFilterState>({});
   const [exporting, setExporting] = useState<'csv' | 'excel' | null>(null);
+  const [searchParams] = useSearchParams();
+  const highlightEntryId = searchParams.get('entry');
 
   const queryParams = useMemo(
     () => ({
@@ -39,6 +42,20 @@ export function ParkingPage() {
     queryFn: () => parkingApi.history(queryParams),
   });
 
+  const highlightedEntry = useQuery({
+    queryKey: ['parking', highlightEntryId],
+    queryFn: () => parkingApi.get(highlightEntryId!),
+    enabled: Boolean(highlightEntryId),
+  });
+
+  const rows = useMemo(() => {
+    const items = data?.data ?? [];
+    const extra = highlightedEntry.data;
+    if (!extra) return items;
+    if (items.some((row) => row.id === extra.id)) return items;
+    return [extra, ...items];
+  }, [data?.data, highlightedEntry.data]);
+
   const handleExport = async (type: 'csv' | 'excel') => {
     setExporting(type);
     try {
@@ -53,7 +70,10 @@ export function ParkingPage() {
     }
   };
 
-  const columns: Column<ParkingEntry>[] = [
+  const isB2cAdmin = user?.role === 'ORG_ADMIN' && user.organizationClientType === 'B2C';
+
+  const columns: Column<ParkingEntry>[] = useMemo(
+    () => [
     {
       key: 'ticket',
       header: 'Ticket',
@@ -73,14 +93,29 @@ export function ParkingPage() {
     },
     {
       key: 'employee',
-      header: 'Employee',
+      header: isB2cAdmin ? 'Guest' : 'Employee',
       render: (entry) => (
         <div>
           <p className="text-sm">{entry.employee.name}</p>
-          <p className="text-xs text-muted-foreground">{entry.organization.name}</p>
+          {isB2cAdmin ? (
+            <p className="font-mono text-xs text-muted-foreground">{entry.employee.phone ?? '—'}</p>
+          ) : (
+            <p className="text-xs text-muted-foreground">{entry.organization.name}</p>
+          )}
         </div>
       ),
     },
+    ...(isB2cAdmin
+      ? [
+          {
+            key: 'phone',
+            header: 'Phone',
+            render: (entry: ParkingEntry) => (
+              <span className="font-mono text-sm tabular-nums">{entry.employee.phone ?? '—'}</span>
+            ),
+          } satisfies Column<ParkingEntry>,
+        ]
+      : []),
     { key: 'site', header: 'Site', render: (entry) => entry.site.name },
     {
       key: 'parkedAt',
@@ -95,7 +130,9 @@ export function ParkingPage() {
     { key: 'duration', header: 'Duration', render: (entry) => formatDuration(entry.durationMinutes) },
     { key: 'valet', header: 'Valet', render: (entry) => entry.valet?.name ?? '—' },
     { key: 'status', header: 'Status', render: (entry) => <ParkingStatusBadge status={entry.status} /> },
-  ];
+    ],
+    [isB2cAdmin],
+  );
 
   return (
     <div className="space-y-6">
@@ -118,8 +155,9 @@ export function ParkingPage() {
 
       <DataTable
         columns={columns}
-        rows={data?.data}
+        rows={rows}
         rowKey={(entry) => entry.id}
+        highlightedRowKey={highlightEntryId}
         isLoading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}
@@ -128,7 +166,7 @@ export function ParkingPage() {
         toolbar={
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
-              <SearchInput value={search} onChange={setSearch} placeholder="Search ticket, vehicle, employee…" />
+              <SearchInput value={search} onChange={setSearch} placeholder={isB2cAdmin ? 'Search ticket, vehicle, phone…' : 'Search ticket, vehicle, employee…'} />
               <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
                 <ClipboardList className="size-4" />
                 {data?.meta.total ?? 0} records

@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { prisma } from '../config/prisma';
 import { authService } from '../services/auth.service';
 import { userRepository } from '../repositories/user.repository';
 import { asyncHandler } from '../utils/asyncHandler';
@@ -60,7 +61,15 @@ export const authController = {
     const user = await userRepository.findById(req.user.id);
     if (!user) throw ApiError.notFound('User not found');
     const { passwordHash: _ignored, ...safe } = user;
-    sendSuccess(res, safe);
+    const organizationClientType = user.organizationId
+      ? (
+          await prisma.organization.findUnique({
+            where: { id: user.organizationId },
+            select: { clientType: true },
+          })
+        )?.clientType ?? null
+      : null;
+    sendSuccess(res, { ...safe, organizationClientType });
   }),
 
   updateProfile: asyncHandler(async (req: Request, res: Response) => {

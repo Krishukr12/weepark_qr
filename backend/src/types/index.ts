@@ -1,4 +1,4 @@
-import type { Role } from '@prisma/client';
+import type { OrganizationClientType, Role } from '@prisma/client';
 
 export interface AuthTokenPayload {
   sub: string;
@@ -12,6 +12,7 @@ export interface AuthenticatedUser {
   email: string;
   role: Role;
   organizationId: string | null;
+  organizationClientType: OrganizationClientType | null;
   isActive: boolean;
 }
 

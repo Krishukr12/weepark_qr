@@ -71,7 +71,7 @@ export function Sidebar({ onNavigate }: SidebarProps) {
   const location = useLocation();
 
   if (!user) return null;
-  const items = navForRole(user.role);
+  const items = navForRole(user.role, user.organizationClientType);
 
   return (
     <div className="flex h-full flex-col bg-sidebar">

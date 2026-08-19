@@ -11,7 +11,8 @@ import { signParkAuth, signParkSession, verifyParkAuth, verifyParkSession } from
 import { notificationService } from './notification.service';
 import { recordAudit } from './audit.service';
 import type { AuthenticatedUser, PaginatedResult, PaginationParams } from '../types';
-import type { ParkingHistoryFilter, QuickRegisterInput } from '../validators/parking.validator';
+import type { ParkingHistoryFilter, QuickRegisterInput, GuestCheckInInput } from '../validators/parking.validator';
+import { getSiteParkingContext } from './parking-mode';
 import type { ParkingStatus } from '@prisma/client';
 
 const ACTIVE: ParkingStatus[] = ['PARKED', 'PICKUP_REQUESTED', 'PICKUP_IN_PROGRESS'];
@@ -60,14 +61,15 @@ export interface PublicLookupResult {
 }
 
 function toDisplay(vehicle: VehicleWithOwner): PublicVehicleDisplay {
+  const guest = vehicle.employee.isGuest;
   return {
     vehicleNumber: vehicle.vehicleNumber,
     vehicleType: vehicle.vehicleType,
     brand: vehicle.brand,
     model: vehicle.model,
     color: vehicle.color,
-    employeeName: vehicle.employee.name,
-    employeeCode: vehicle.employee.employeeCode,
+    employeeName: guest ? 'Guest' : vehicle.employee.name,
+    employeeCode: guest ? 'GUEST' : vehicle.employee.employeeCode,
     organizationName: vehicle.employee.organization.companyName,
   };
 }
@@ -84,7 +86,7 @@ function toPublicStatus(entry: ParkingEntryFull): PublicParkingStatus {
     brand: entry.vehicle.brand,
     model: entry.vehicle.model,
     color: entry.vehicle.color,
-    employeeName: entry.employee.name,
+    employeeName: entry.employee.isGuest ? 'Guest' : entry.employee.name,
     organizationName: entry.organization.companyName,
     siteName: entry.site.name,
     siteCode: entry.site.siteCode,
@@ -174,6 +176,11 @@ export const parkingService = {
     const site = await siteRepository.findByCode(siteCode);
     if (!site || !site.isActive) throw ApiError.notFound('This parking site does not exist or is inactive');
 
+    const { parkingMode } = await getSiteParkingContext(site.id);
+    if (parkingMode === 'B2C') {
+      throw ApiError.badRequest('This site uses guest check-in. Enter your vehicle number and phone number.');
+    }
+
     const vehicle = await vehicleRepository.findByNumber(vehicleNumber);
     const siteMeta = { name: site.name, siteCode: site.siteCode };
 
@@ -221,6 +228,11 @@ export const parkingService = {
   ): Promise<{ parkToken: string; display: PublicVehicleDisplay; site: { name: string; siteCode: string } }> {
     const site = await siteRepository.findByCode(siteCode);
     if (!site || !site.isActive) throw ApiError.notFound('This parking site does not exist or is inactive');
+
+    const { parkingMode } = await getSiteParkingContext(site.id);
+    if (parkingMode === 'B2C') {
+      throw ApiError.badRequest('This site uses guest check-in. Enter your vehicle number and phone number.');
+    }
 
     const existingVehicle = await vehicleRepository.findByNumber(input.vehicleNumber);
     if (existingVehicle) throw ApiError.conflict('This vehicle is already registered');
@@ -272,6 +284,7 @@ export const parkingService = {
               email: true,
               phone: true,
               isActive: true,
+              isGuest: true,
               organization: { select: { id: true, name: true, companyName: true } },
             },
           },
@@ -283,6 +296,119 @@ export const parkingService = {
       parkToken: signParkAuth({ vehicleId: vehicle.id, siteId: site.id, siteCode: site.siteCode }),
       display: toDisplay(vehicle as VehicleWithOwner),
       site: { name: site.name, siteCode: site.siteCode },
+    };
+  },
+
+  async guestCheckIn(siteCode: string, input: GuestCheckInInput): Promise<PublicLookupResult> {
+    const site = await siteRepository.findByCode(siteCode);
+    if (!site || !site.isActive) throw ApiError.notFound('This parking site does not exist or is inactive');
+
+    const { parkingMode, b2cOrg } = await getSiteParkingContext(site.id);
+    if (parkingMode !== 'B2C' || !b2cOrg) {
+      throw ApiError.badRequest('This site uses vehicle lookup. Enter your registered vehicle number.');
+    }
+    if (!b2cOrg.isActive) throw ApiError.forbidden('This organization is inactive');
+
+    const siteMeta = { name: site.name, siteCode: site.siteCode };
+    const existingVehicle = await vehicleRepository.findByNumber(input.vehicleNumber);
+
+    if (existingVehicle) {
+      const owner = existingVehicle.employee;
+      if (
+        !owner.isGuest ||
+        owner.organization.id !== b2cOrg.id
+      ) {
+        throw ApiError.conflict('This vehicle is already registered with another organization');
+      }
+      if (owner.phone !== input.phone) {
+        throw ApiError.conflict('This vehicle is already registered to a different phone number');
+      }
+      if (!existingVehicle.isActive || !owner.isActive) {
+        throw ApiError.forbidden('This vehicle is inactive');
+      }
+
+      const activeParking = await parkingRepository.findActiveByVehicle(existingVehicle.id);
+      if (activeParking) {
+        const atThisSite = activeParking.site.siteCode === site.siteCode;
+        if (!atThisSite) throw ApiError.conflict('This vehicle is already parked');
+        return {
+          found: true,
+          canParkAtSite: true,
+          alreadyParked: true,
+          vehicleNumber: existingVehicle.vehicleNumber,
+          display: toDisplay(existingVehicle),
+          parking: toPublicStatus(activeParking),
+          sessionToken: sessionTokenFor(activeParking),
+          site: siteMeta,
+        };
+      }
+
+      return {
+        found: true,
+        canParkAtSite: true,
+        alreadyParked: false,
+        vehicleNumber: existingVehicle.vehicleNumber,
+        display: toDisplay(existingVehicle),
+        parkToken: signParkAuth({ vehicleId: existingVehicle.id, siteId: site.id, siteCode: site.siteCode }),
+        site: siteMeta,
+      };
+    }
+
+    const digits = input.phone.replace(/^\+/, '');
+    const guestCode = `GUEST-${digits}`;
+    const guestEmail = `guest.${b2cOrg.id}.${digits}@internal.weepark`;
+
+    const vehicle = await prisma.$transaction(async (tx) => {
+      let employee = await tx.employee.findFirst({
+        where: { organizationId: b2cOrg.id, isGuest: true, phone: input.phone },
+      });
+
+      if (!employee) {
+        employee = await tx.employee.create({
+          data: {
+            employeeCode: guestCode,
+            name: 'Guest',
+            email: guestEmail,
+            phone: input.phone,
+            isGuest: true,
+            organizationId: b2cOrg.id,
+          },
+        });
+      }
+
+      if (!employee.isActive) throw ApiError.forbidden('This guest is inactive');
+
+      return tx.vehicle.create({
+        data: {
+          vehicleNumber: input.vehicleNumber,
+          vehicleType: 'CAR',
+          employeeId: employee.id,
+        },
+        include: {
+          employee: {
+            select: {
+              id: true,
+              name: true,
+              employeeCode: true,
+              email: true,
+              phone: true,
+              isActive: true,
+              isGuest: true,
+              organization: { select: { id: true, name: true, companyName: true, isActive: true } },
+            },
+          },
+        },
+      });
+    });
+
+    return {
+      found: true,
+      canParkAtSite: true,
+      alreadyParked: false,
+      vehicleNumber: vehicle.vehicleNumber,
+      display: toDisplay(vehicle as VehicleWithOwner),
+      parkToken: signParkAuth({ vehicleId: vehicle.id, siteId: site.id, siteCode: site.siteCode }),
+      site: siteMeta,
     };
   },
 

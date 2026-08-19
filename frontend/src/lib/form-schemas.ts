@@ -27,6 +27,11 @@ export const resetPasswordSchema = z
     path: ['confirmPassword'],
   });
 
+export const publicGuestSchema = z.object({
+  vehicleNumber: z.string().min(4, 'Vehicle number is too short'),
+  phone: z.string().min(10, 'Enter a valid phone number'),
+});
+
 export const publicRegisterSchema = z.object({
   vehicleType: z.enum(VEHICLE_TYPES),
   fuelType: z.enum(FUEL_TYPES),
@@ -86,6 +91,7 @@ export const orgSchema = z.object({
   adminPhone: z.string().or(z.literal('')),
   address: z.string().or(z.literal('')),
   logoUrl: z.string().url('Enter a valid URL').or(z.literal('')),
+  clientType: z.enum(['B2B', 'B2C']),
   siteAllocations: z.array(siteAllocationSchema),
 });
 
@@ -113,6 +119,7 @@ export type LoginForm = z.infer<typeof loginSchema>;
 export type ForgotPasswordForm = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordForm = z.infer<typeof resetPasswordSchema>;
 export type PublicRegisterForm = z.infer<typeof publicRegisterSchema>;
+export type PublicGuestForm = z.infer<typeof publicGuestSchema>;
 export type VehicleForm = z.infer<typeof vehicleSchema>;
 export type ValetForm = z.infer<typeof valetSchema>;
 export type ProfileForm = z.infer<typeof profileSchema>;

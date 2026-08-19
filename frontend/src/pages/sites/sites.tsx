@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { motion } from 'framer-motion';
@@ -346,6 +346,8 @@ export function SitesPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editingSite, setEditingSite] = useState<Site | null>(null);
   const [deletingSite, setDeletingSite] = useState<Site | null>(null);
+  const [searchParams] = useSearchParams();
+  const highlightSiteId = searchParams.get('highlight');
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isOrgAdmin = user?.role === 'ORG_ADMIN';
@@ -506,6 +508,7 @@ export function SitesPage() {
         columns={columns}
         rows={data?.data}
         rowKey={(site) => site.id}
+        highlightedRowKey={highlightSiteId}
         isLoading={isLoading}
         meta={data?.meta}
         onPageChange={setPage}

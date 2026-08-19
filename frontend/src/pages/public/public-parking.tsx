@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { publicApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
-import { FUEL_TYPES, publicRegisterSchema, VEHICLE_TYPES, type PublicRegisterForm } from '@/lib/form-schemas';
+import { FUEL_TYPES, publicGuestSchema, publicRegisterSchema, VEHICLE_TYPES, type PublicRegisterForm } from '@/lib/form-schemas';
 import { cn, formatDuration } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -98,6 +98,7 @@ export function PublicParkingPage() {
 
   const [step, setStep] = useState<Step>('lookup');
   const [vehicleNumber, setVehicleNumber] = useState('');
+  const [guestPhone, setGuestPhone] = useState('');
   const [display, setDisplay] = useState<PublicVehicleDisplay | null>(null);
   const [parkToken, setParkToken] = useState<string | null>(null);
   const [sessionToken, setSessionToken] = useState<string | null>(null);
@@ -269,6 +270,53 @@ export function PublicParkingPage() {
     onError: (error) => toast.error(getApiErrorMessage(error)),
   });
 
+  const guestCheckIn = useMutation({
+    mutationFn: async () => {
+      const result = await publicApi.guestCheckIn(siteCode, vehicleNumber, guestPhone);
+      if (result.alreadyParked && result.sessionToken && result.parking) {
+        return { kind: 'restored' as const, result };
+      }
+      if (!result.parkToken) {
+        throw new Error('Unable to start parking for this vehicle');
+      }
+      const created = await publicApi.park(siteCode, result.parkToken);
+      return { kind: 'parked' as const, created };
+    },
+    onSuccess: (payload) => {
+      if (payload.kind === 'restored') {
+        const { result } = payload;
+        setSessionToken(result.sessionToken!);
+        setParking(result.parking!);
+        localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({
+            siteCode,
+            sessionToken: result.sessionToken!,
+            ticketCode: result.parking!.ticketCode,
+            vehicleNumber: result.vehicleNumber,
+          } satisfies StoredSession),
+        );
+        setStep('parked');
+        return;
+      }
+      setParking(payload.created.parking);
+      setSessionToken(payload.created.sessionToken);
+      localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({
+          siteCode,
+          sessionToken: payload.created.sessionToken,
+          ticketCode: payload.created.parking.ticketCode,
+          vehicleNumber: payload.created.parking.vehicleNumber,
+        } satisfies StoredSession),
+      );
+      setStep('parked');
+      void queryClient.invalidateQueries({ queryKey: ['public-site', siteCode] });
+      toast.success('Vehicle parked — enjoy your day!');
+    },
+    onError: (error) => toast.error(getApiErrorMessage(error)),
+  });
+
   const requestPickup = useMutation({
     mutationFn: () =>
       publicApi.requestPickup(sessionToken ?? '', liveEntry?.vehicleNumber ?? '', liveEntry?.ticketCode ?? ''),
@@ -286,6 +334,7 @@ export function PublicParkingPage() {
     setSessionToken(null);
     setParking(null);
     setVehicleNumber('');
+    setGuestPhone('');
     localStorage.removeItem(SESSION_STORAGE_KEY);
   };
 
@@ -319,7 +368,55 @@ export function PublicParkingPage() {
 
         <AnimatePresence mode="wait">
           {/* STEP 1 — vehicle number lookup */}
-          {step === 'lookup' ? (
+          {step === 'lookup' && site.data.parkingMode === 'B2C' ? (
+            <motion.div key="guest" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -14 }}>
+              <Card className="space-y-5 p-6">
+                <div className="space-y-1">
+                  <h2 className="text-lg font-semibold tracking-tight">Park your vehicle</h2>
+                  <p className="text-sm text-muted-foreground">Enter your vehicle number and phone to park.</p>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    const parsed = publicGuestSchema.safeParse({ vehicleNumber, phone: guestPhone });
+                    if (!parsed.success) {
+                      toast.error(parsed.error.issues[0]?.message ?? 'Enter a valid vehicle number and phone');
+                      return;
+                    }
+                    guestCheckIn.mutate();
+                  }}
+                  className="space-y-4"
+                >
+                  <Input
+                    value={vehicleNumber}
+                    onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
+                    placeholder="KA 01 AB 1234"
+                    className="h-14 text-center font-mono text-xl tracking-widest uppercase"
+                    autoFocus
+                  />
+                  <Input
+                    value={guestPhone}
+                    onChange={(e) => setGuestPhone(e.target.value)}
+                    placeholder="Phone number"
+                    inputMode="tel"
+                    className="h-12"
+                  />
+                  <Button
+                    type="submit"
+                    size="lg"
+                    variant="brand"
+                    className="h-13 w-full text-base"
+                    disabled={vehicleNumber.trim().length < 4 || guestPhone.trim().length < 10}
+                    loading={guestCheckIn.isPending}
+                  >
+                    PARK MY VEHICLE <CircleParking />
+                  </Button>
+                </form>
+              </Card>
+            </motion.div>
+          ) : null}
+
+          {step === 'lookup' && site.data.parkingMode !== 'B2C' ? (
             <motion.div key="lookup" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -14 }}>
               <Card className="space-y-5 p-6">
                 <div className="space-y-1">

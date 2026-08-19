@@ -20,3 +20,12 @@ export function RequireRole({ roles }: { roles: Role[] }) {
   }
   return <Outlet />;
 }
+
+export function RequireB2bOrgFeatures() {
+  const { user } = useAuth();
+
+  if (user?.role === 'ORG_ADMIN' && user.organizationClientType === 'B2C') {
+    return <Navigate to="/" replace />;
+  }
+  return <Outlet />;
+}

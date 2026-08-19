@@ -16,7 +16,8 @@ import type {
   SiteAllocationInput,
   UpdateOrganizationInput,
 } from '../validators/organization.validator';
-import type { Organization } from '@prisma/client';
+import type { Organization, OrganizationClientType } from '@prisma/client';
+import { assertSiteClientTypeCompatible } from './parking-mode';
 
 /**
  * Validates that each site allocation fits within remaining site capacity
@@ -76,7 +77,9 @@ async function validateSiteAllocations(
 }
 
 export const organizationService = {
-  async list(params: PaginationParams): Promise<PaginatedResult<OrganizationWithCounts>> {
+  async list(
+    params: PaginationParams & { clientType?: OrganizationClientType },
+  ): Promise<PaginatedResult<OrganizationWithCounts>> {
     const { items, total } = await organizationRepository.findMany(params);
     return buildPaginatedResult(items, total, params);
   },
@@ -123,6 +126,10 @@ export const organizationService = {
     if (existingUser) throw ApiError.conflict('A user with this admin email already exists');
 
     await validateSiteAllocations(input.siteAllocations);
+    await assertSiteClientTypeCompatible(
+      input.siteAllocations.map((a) => a.siteId),
+      input.clientType,
+    );
 
     const totalAllocated = input.siteAllocations.reduce((sum, a) => sum + a.allocatedSpaces, 0);
     const parkingAllocation = totalAllocated > 0 ? totalAllocated : input.parkingAllocation;
@@ -142,6 +149,7 @@ export const organizationService = {
           address: input.address || null,
           logoUrl: input.logoUrl || null,
           parkingAllocation,
+          clientType: input.clientType,
           isActive: input.isActive,
         },
       });
@@ -170,6 +178,7 @@ export const organizationService = {
       adminName: organization.adminName,
       email,
       password,
+      clientType: organization.clientType,
     });
 
     await notificationService.notifyRole('SUPER_ADMIN', {
@@ -196,6 +205,11 @@ export const organizationService = {
 
     if (input.siteAllocations !== undefined) {
       await validateSiteAllocations(input.siteAllocations, id);
+      await assertSiteClientTypeCompatible(
+        input.siteAllocations.map((a) => a.siteId),
+        org.clientType,
+        id,
+      );
     }
 
     const totalAllocated =
@@ -252,6 +266,7 @@ export const organizationService = {
     if (!site || !site.isActive) throw ApiError.notFound('Site not found or inactive');
 
     await validateSiteAllocations([{ siteId, allocatedSpaces }], organizationId);
+    await assertSiteClientTypeCompatible([siteId], org.clientType, organizationId);
 
     await organizationRepository.assignSite(organizationId, siteId, allocatedSpaces);
 

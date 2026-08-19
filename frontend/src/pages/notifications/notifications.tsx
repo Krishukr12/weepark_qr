@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Bell, BellRing, Building2, Car, CheckCheck, PackageCheck, UserCog } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { notificationsApi } from '@/api/domain.api';
+import { getNotificationHref } from '@/lib/notification-target';
 import { useListState } from '@/hooks/use-list-state';
 import { PageHeader } from '@/components/shared/page-header';
 import { EmptyState } from '@/components/shared/empty-state';
@@ -26,6 +28,7 @@ const typeIcons: Record<NotificationType, LucideIcon> = {
 };
 
 function NotificationRow({ notification }: { notification: AppNotification }) {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const Icon = typeIcons[notification.type] ?? Bell;
 
@@ -34,10 +37,16 @@ function NotificationRow({ notification }: { notification: AppNotification }) {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
+  const openRelated = () => {
+    if (!notification.isRead) markRead.mutate();
+    const href = getNotificationHref(notification);
+    navigate(href ?? '/notifications');
+  };
+
   return (
     <button
       type="button"
-      onClick={() => !notification.isRead && markRead.mutate()}
+      onClick={openRelated}
       className={cn(
         'flex w-full items-start gap-3.5 border-b p-4 text-left transition-colors last:border-0 hover:bg-muted/50',
         !notification.isRead && 'bg-brand/5',

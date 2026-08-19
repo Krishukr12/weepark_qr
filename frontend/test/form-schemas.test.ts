@@ -7,6 +7,7 @@ import {
   orgSchema,
   profileSchema,
   publicRegisterSchema,
+  publicGuestSchema,
   resetPasswordSchema,
   siteSchema,
   valetSchema,
@@ -90,6 +91,21 @@ describe('publicRegisterSchema', () => {
   });
 });
 
+describe('publicGuestSchema', () => {
+  it('accepts a vehicle number and phone', () => {
+    expect(publicGuestSchema.safeParse({ vehicleNumber: 'KA01AB1234', phone: '9876543210' }).success).toBe(true);
+  });
+
+  it('rejects a short vehicle number or phone', () => {
+    expect(messages(publicGuestSchema, { vehicleNumber: 'KA', phone: '9876543210' })).toContain(
+      'Vehicle number is too short',
+    );
+    expect(messages(publicGuestSchema, { vehicleNumber: 'KA01AB1234', phone: '123' })).toContain(
+      'Enter a valid phone number',
+    );
+  });
+});
+
 describe('vehicleSchema', () => {
   const valid = {
     vehicleNumber: 'KA01AB1234',
@@ -170,10 +186,17 @@ describe('orgSchema', () => {
     address: '',
     logoUrl: '',
     siteAllocations: [{ siteId: 'site-1', allocatedSpaces: 10 }],
+    clientType: 'B2B' as const,
   };
 
   it('accepts a valid organization', () => {
     expect(orgSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('rejects missing or invalid client type', () => {
+    const { clientType: _ignored, ...withoutType } = valid;
+    expect(orgSchema.safeParse(withoutType).success).toBe(false);
+    expect(orgSchema.safeParse({ ...valid, clientType: 'B2G' }).success).toBe(false);
   });
 
   it('rejects short names, invalid admin email, bad logo URL, and zero allocated spaces', () => {

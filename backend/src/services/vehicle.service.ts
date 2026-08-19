@@ -1,5 +1,6 @@
 import { vehicleRepository, type VehicleWithOwner } from '../repositories/vehicle.repository';
 import { employeeRepository } from '../repositories/employee.repository';
+import { organizationRepository } from '../repositories/organization.repository';
 import { ApiError } from '../utils/apiError';
 import { buildPaginatedResult } from '../utils/pagination';
 import { recordAudit } from './audit.service';
@@ -24,7 +25,7 @@ export const vehicleService = {
 
   async getById(actor: AuthenticatedUser, id: string): Promise<VehicleWithOwner> {
     const vehicle = await vehicleRepository.findById(id);
-    if (!vehicle) throw ApiError.notFound('Vehicle not found');
+    if (!vehicle || vehicle.employee.isGuest) throw ApiError.notFound('Vehicle not found');
     assertVehicleScope(actor, vehicle);
     return vehicle;
   },
@@ -34,6 +35,12 @@ export const vehicleService = {
     if (!employee) throw ApiError.notFound('Employee not found');
     if (actor.role === 'ORG_ADMIN' && employee.organizationId !== actor.organizationId) {
       throw ApiError.forbidden('You cannot add vehicles for another organization');
+    }
+    if (employee.isGuest) throw ApiError.notFound('Employee not found');
+
+    const org = await organizationRepository.findById(employee.organizationId);
+    if (org?.clientType === 'B2C') {
+      throw ApiError.forbidden('B2C organizations do not manage vehicles — guests check in at the site QR');
     }
 
     const existing = await vehicleRepository.findByNumber(input.vehicleNumber);
@@ -61,6 +68,10 @@ export const vehicleService = {
 
   async update(actor: AuthenticatedUser, id: string, input: UpdateVehicleInput): Promise<VehicleWithOwner> {
     const vehicle = await this.getById(actor, id);
+    const org = await organizationRepository.findById(vehicle.employee.organization.id);
+    if (org?.clientType === 'B2C') {
+      throw ApiError.forbidden('B2C organizations do not manage vehicles — guests check in at the site QR');
+    }
 
     if (input.isPrimary) {
       await vehicleRepository.clearPrimaryFlag(vehicle.employee.id);
@@ -82,7 +93,11 @@ export const vehicleService = {
   },
 
   async remove(actor: AuthenticatedUser, id: string): Promise<void> {
-    await this.getById(actor, id); // scope check
+    const vehicle = await this.getById(actor, id);
+    const org = await organizationRepository.findById(vehicle.employee.organization.id);
+    if (org?.clientType === 'B2C') {
+      throw ApiError.forbidden('B2C organizations do not manage vehicles — guests check in at the site QR');
+    }
     await vehicleRepository.delete(id);
     await recordAudit({ userId: actor.id, action: 'VEHICLE_DELETED', entity: 'Vehicle', entityId: id });
   },

@@ -15,7 +15,7 @@ import { revokeAllRefreshTokens } from '../utils/sessions';
 import { emailService } from './email.service';
 import { recordAudit } from './audit.service';
 import type { AuthenticatedUser, AuthTokenPayload } from '../types';
-import type { User } from '@prisma/client';
+import type { OrganizationClientType, User } from '@prisma/client';
 
 interface LoginContext {
   userAgent?: string;
@@ -32,13 +32,23 @@ function toPayload(user: User): AuthTokenPayload {
   return { sub: user.id, role: user.role, organizationId: user.organizationId };
 }
 
-function toAuthUser(user: User): AuthResult['user'] {
+async function organizationClientTypeFor(organizationId: string | null): Promise<OrganizationClientType | null> {
+  if (!organizationId) return null;
+  const org = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { clientType: true },
+  });
+  return org?.clientType ?? null;
+}
+
+async function toAuthUser(user: User): Promise<AuthResult['user']> {
   return {
     id: user.id,
     name: user.name,
     email: user.email,
     role: user.role,
     organizationId: user.organizationId,
+    organizationClientType: await organizationClientTypeFor(user.organizationId),
     isActive: user.isActive,
     photoUrl: user.photoUrl,
     phone: user.phone,
@@ -89,7 +99,7 @@ export const authService = {
       entityId: user.id,
       ipAddress: context.ipAddress,
     });
-    return { user: toAuthUser(user), ...tokens };
+    return { user: await toAuthUser(user), ...tokens };
   },
 
   async refresh(refreshToken: string, context: LoginContext): Promise<AuthResult> {
@@ -156,7 +166,7 @@ export const authService = {
       );
     }
 
-    return { user: toAuthUser(tokens.user), accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
+    return { user: await toAuthUser(tokens.user), accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
   },
 
   async logout(refreshToken: string): Promise<void> {

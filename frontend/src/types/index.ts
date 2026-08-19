@@ -1,3 +1,5 @@
+export type OrganizationClientType = 'B2B' | 'B2C';
+export type ParkingMode = 'B2B' | 'B2C';
 export type Role = 'SUPER_ADMIN' | 'ORG_ADMIN' | 'VALET' | 'EMPLOYEE';
 
 export type VehicleType = 'CAR' | 'SUV' | 'BIKE' | 'SCOOTER' | 'EV' | 'OTHER';
@@ -41,6 +43,7 @@ export interface User {
   role: Role;
   photoUrl: string | null;
   organizationId: string | null;
+  organizationClientType?: OrganizationClientType | null;
   isActive: boolean;
   createdAt: string;
 }
@@ -123,6 +126,7 @@ export interface Organization {
   address: string | null;
   logoUrl: string | null;
   parkingAllocation: number;
+  clientType: OrganizationClientType;
   isActive: boolean;
   createdAt: string;
   _count?: { employees: number; parkingEntries: number };
@@ -141,6 +145,8 @@ export interface SiteCapacitySummary {
   totalCapacity: number;
   allocatedToOthers: number;
   remaining: number;
+  occupiedByClientType: OrganizationClientType | null;
+  occupiedByOrganizations: { name: string; companyName: string; clientType: OrganizationClientType }[];
 }
 
 export interface SiteAllocationInput {
@@ -200,7 +206,7 @@ export interface ParkingEntry {
   durationMinutes: number | null;
   notes: string | null;
   vehicle: { id: string; vehicleNumber: string; vehicleType: VehicleType; brand: string | null; model: string | null; color: string | null };
-  employee: { id: string; name: string; employeeCode: string; phone: string | null; email: string };
+  employee: { id: string; name: string; employeeCode: string; phone: string | null; email: string; isGuest?: boolean };
   organization: { id: string; name: string; companyName: string };
   site: { id: string; name: string; siteCode: string; address: string };
   valet: { id: string; name: string; phone: string | null } | null;
@@ -294,6 +300,7 @@ export interface PublicSite {
   longitude: number | null;
   googleMapsLink: string | null;
   occupancy: SiteOccupancy;
+  parkingMode: ParkingMode;
 }
 
 export interface PublicVehicleDisplay {

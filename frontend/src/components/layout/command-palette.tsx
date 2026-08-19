@@ -42,7 +42,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigate">
-          {navForRole(user.role).map((item) => (
+          {navForRole(user.role, user.organizationClientType).map((item) => (
             <CommandItem key={item.path} onSelect={() => run(() => navigate(item.path))}>
               <item.icon />
               {item.label}

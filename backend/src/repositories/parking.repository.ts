@@ -7,7 +7,7 @@ import type { ParkingHistoryFilter } from '../validators/parking.validator';
 const parkingInclude = {
   include: {
     vehicle: { select: { id: true, vehicleNumber: true, vehicleType: true, brand: true, model: true, color: true } },
-    employee: { select: { id: true, name: true, employeeCode: true, phone: true, email: true } },
+    employee: { select: { id: true, name: true, employeeCode: true, phone: true, email: true, isGuest: true } },
     organization: { select: { id: true, name: true, companyName: true } },
     site: { select: { id: true, name: true, siteCode: true, address: true } },
     valet: { select: { id: true, name: true, phone: true } },
@@ -47,6 +47,7 @@ function buildWhere(filter: ScopedParkingFilter, search?: string): Prisma.Parkin
             { ticketCode: { contains: search, mode: 'insensitive' } },
             { vehicle: { vehicleNumber: { contains: search.toUpperCase().replace(/[\s-]/g, ''), mode: 'insensitive' } } },
             { employee: { name: { contains: search, mode: 'insensitive' } } },
+            { employee: { phone: { contains: search.replace(/[\s-()]/g, ''), mode: 'insensitive' } } },
           ],
         }
       : {}),

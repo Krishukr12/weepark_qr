@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,6 +6,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { EmptyState } from './empty-state';
 import type { PaginationMeta } from '@/types';
+import { highlightDomId } from '@/lib/notification-target';
 import { cn } from '@/lib/utils';
 
 export interface Column<T> {
@@ -27,6 +28,7 @@ interface DataTableProps<T> {
   emptyAction?: ReactNode;
   onRowClick?: (row: T) => void;
   toolbar?: ReactNode;
+  highlightedRowKey?: string | null;
 }
 
 export function DataTable<T>({
@@ -41,8 +43,20 @@ export function DataTable<T>({
   emptyAction,
   onRowClick,
   toolbar,
+  highlightedRowKey,
 }: DataTableProps<T>) {
   const showEmpty = !isLoading && (rows?.length ?? 0) === 0;
+
+  useEffect(() => {
+    if (!highlightedRowKey || isLoading) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(highlightDomId(highlightedRowKey))?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightedRowKey, isLoading, rows]);
 
   return (
     <div className="space-y-3">
@@ -72,19 +86,24 @@ export function DataTable<T>({
                       ))}
                     </TableRow>
                   ))
-                : rows?.map((row) => (
-                    <TableRow
-                      key={rowKey(row)}
-                      onClick={onRowClick ? () => onRowClick(row) : undefined}
-                      className={cn(onRowClick && 'cursor-pointer')}
-                    >
-                      {columns.map((column) => (
-                        <TableCell key={column.key} className={column.className}>
-                          {column.render(row)}
-                        </TableCell>
-                      ))}
-                    </TableRow>
-                  ))}
+                : rows?.map((row) => {
+                    const key = rowKey(row);
+                    const highlighted = highlightedRowKey === key;
+                    return (
+                      <TableRow
+                        key={key}
+                        id={highlighted ? highlightDomId(key) : undefined}
+                        onClick={onRowClick ? () => onRowClick(row) : undefined}
+                        className={cn(onRowClick && 'cursor-pointer', highlighted && 'notification-highlight')}
+                      >
+                        {columns.map((column) => (
+                          <TableCell key={column.key} className={column.className}>
+                            {column.render(row)}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
             </TableBody>
           </Table>
         </Card>

@@ -219,6 +219,72 @@ export async function createTenant(label: string): Promise<TenantFixture> {
   };
 }
 
+export interface B2cTenantFixture {
+  password: string;
+  org: { id: string; name: string };
+  admin: { id: string; email: string };
+  valet: { id: string; email: string };
+  site: { id: string; siteCode: string };
+}
+
+export async function createB2cTenant(label: string, allocatedSpaces = 10): Promise<B2cTenantFixture> {
+  const password = 'TestPass1234';
+  const passwordHash = await hash(password);
+  const stamp = unique(label);
+
+  const site = await prisma.site.create({
+    data: {
+      siteCode: generateSiteCode(),
+      name: `Site ${stamp}`,
+      address: '9 Walk-in Street, Bengaluru',
+      totalCapacity: 20,
+    },
+  });
+
+  const org = await prisma.organization.create({
+    data: {
+      name: `B2C Org ${stamp}`,
+      companyName: `Walk-in ${stamp}`,
+      adminName: 'B2C Admin',
+      adminEmail: `b2c-admin-${stamp}@wptest.local`,
+      parkingAllocation: allocatedSpaces,
+      clientType: 'B2C',
+    },
+  });
+
+  await prisma.organizationSiteAssignment.create({
+    data: { organizationId: org.id, siteId: site.id, allocatedSpaces },
+  });
+
+  const admin = await prisma.user.create({
+    data: {
+      name: 'B2C Admin',
+      email: `b2c-orgadmin-${stamp}@wptest.local`,
+      passwordHash,
+      role: 'ORG_ADMIN',
+      organizationId: org.id,
+    },
+  });
+
+  const valet = await prisma.user.create({
+    data: {
+      name: 'B2C Valet',
+      email: `b2c-valet-${stamp}@wptest.local`,
+      passwordHash,
+      role: 'VALET',
+    },
+  });
+  await prisma.valetSiteAssignment.create({ data: { valetId: valet.id, siteId: site.id } });
+
+  return {
+    password,
+    org: { id: org.id, name: org.name },
+    admin: { id: admin.id, email: admin.email },
+    valet: { id: valet.id, email: valet.email },
+    site: { id: site.id, siteCode: site.siteCode },
+  };
+}
+
 export async function createSuperAdmin(): Promise<{ email: string; password: string; id: string }> {
   const password = 'TestPass1234';
   const stamp = unique('sa');
@@ -289,6 +355,7 @@ export async function cleanupTestData(): Promise<void> {
     where: { vehicle: { vehicleNumber: { startsWith: 'WPT' } } },
   });
   await prisma.vehicle.deleteMany({ where: { vehicleNumber: { startsWith: 'WPT' } } });
+  await prisma.employee.deleteMany({ where: { isGuest: true, email: { endsWith: '@internal.weepark' } } });
   await prisma.employee.deleteMany({ where: { email: { endsWith: '@wptest.local' } } });
   await prisma.refreshToken.deleteMany({ where: { user: { email: { endsWith: '@wptest.local' } } } });
   await prisma.passwordResetToken.deleteMany({ where: { user: { email: { endsWith: '@wptest.local' } } } });

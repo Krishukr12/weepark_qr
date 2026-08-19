@@ -17,6 +17,7 @@ export const employeeRepository = {
     params: PaginationParams & { organizationId?: string },
   ): Promise<{ items: EmployeeWithRelations[]; total: number }> {
     const where: Prisma.EmployeeWhereInput = {
+      isGuest: false,
       ...(params.organizationId ? { organizationId: params.organizationId } : {}),
       ...(params.search
         ? {

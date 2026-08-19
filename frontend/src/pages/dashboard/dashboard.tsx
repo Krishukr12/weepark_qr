@@ -96,6 +96,7 @@ export function DashboardPage() {
 
   const isSuperAdmin = user?.role === "SUPER_ADMIN";
   const isValet = user?.role === "VALET";
+  const isB2cOrgAdmin = user?.role === "ORG_ADMIN" && user.organizationClientType === "B2C";
   const s = stats.data;
 
   const cards = s
@@ -154,7 +155,7 @@ export function DashboardPage() {
               },
             ]
           : []),
-        ...(!isValet
+        ...(!isValet && !isB2cOrgAdmin
           ? [
               {
                 title: "Employees",
@@ -169,14 +170,16 @@ export function DashboardPage() {
                 tone: "default" as const,
               },
             ]
-          : [
-              {
-                title: "My Sites",
-                value: s.sites,
-                icon: MapPin,
-                tone: "default" as const,
-              },
-            ]),
+          : isValet
+            ? [
+                {
+                  title: "My Sites",
+                  value: s.sites,
+                  icon: MapPin,
+                  tone: "default" as const,
+                },
+              ]
+            : []),
       ]
     : [];
 

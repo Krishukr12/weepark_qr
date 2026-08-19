@@ -1,16 +1,19 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { Bell, CheckCheck } from 'lucide-react';
 import { notificationsApi } from '@/api/domain.api';
+import { getNotificationHref } from '@/lib/notification-target';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
+import type { AppNotification } from '@/types';
 
 export function NotificationsPopover() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
 
   const { data: unread } = useQuery({
     queryKey: ['notifications', 'unread-count'],
@@ -19,8 +22,8 @@ export function NotificationsPopover() {
   });
 
   const { data: recent, isLoading } = useQuery({
-    queryKey: ['notifications', 'recent'],
-    queryFn: () => notificationsApi.list({ page: 1, limit: 6 }),
+    queryKey: ['notifications', 'recent', 'unread'],
+    queryFn: () => notificationsApi.list({ page: 1, limit: 8, unreadOnly: true }),
   });
 
   const markAllRead = useMutation({
@@ -28,10 +31,22 @@ export function NotificationsPopover() {
     onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['notifications'] }),
   });
 
+  const markRead = useMutation({
+    mutationFn: notificationsApi.markRead,
+    onSuccess: () => void queryClient.invalidateQueries({ queryKey: ['notifications'] }),
+  });
+
+  const openNotification = (notification: AppNotification) => {
+    if (!notification.isRead) markRead.mutate(notification.id);
+    const href = getNotificationHref(notification);
+    setOpen(false);
+    navigate(href ?? '/notifications');
+  };
+
   const count = unread?.count ?? 0;
 
   return (
-    <Popover>
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="ghost" size="icon" className="relative">
           <Bell className="size-4.5" />
@@ -65,29 +80,35 @@ export function NotificationsPopover() {
             </div>
           ) : recent && recent.data.length > 0 ? (
             recent.data.map((notification) => (
-              <div
+              <button
+                type="button"
                 key={notification.id}
-                className={cn(
-                  'border-b px-4 py-3 text-sm transition-colors last:border-0 hover:bg-muted/50',
-                  !notification.isRead && 'bg-brand/5',
-                )}
+                onClick={() => openNotification(notification)}
+                className="block w-full border-b bg-brand/5 px-4 py-3 text-left text-sm transition-colors last:border-0 hover:bg-muted/50"
               >
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-medium">{notification.title}</p>
-                  {!notification.isRead ? <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand" /> : null}
+                  <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-brand" />
                 </div>
                 <p className="mt-0.5 line-clamp-2 text-muted-foreground">{notification.message}</p>
                 <p className="mt-1 text-xs text-muted-foreground">
                   {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                 </p>
-              </div>
+              </button>
             ))
           ) : (
             <p className="px-4 py-10 text-center text-sm text-muted-foreground">You're all caught up.</p>
           )}
         </div>
         <div className="border-t p-2">
-          <Button variant="ghost" className="w-full text-sm" onClick={() => navigate('/notifications')}>
+          <Button
+            variant="ghost"
+            className="w-full text-sm"
+            onClick={() => {
+              setOpen(false);
+              navigate('/notifications');
+            }}
+          >
             View all notifications
           </Button>
         </div>

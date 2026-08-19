@@ -38,8 +38,8 @@ function EmployeeFormDialog({ open, onOpenChange, employee }: { open: boolean; o
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
 
   const { data: orgs } = useQuery({
-    queryKey: ['organizations', 'options'],
-    queryFn: () => organizationsApi.list({ page: 1, limit: 100 }),
+    queryKey: ['organizations', 'options', 'B2B'],
+    queryFn: () => organizationsApi.list({ page: 1, limit: 100, clientType: 'B2B' }),
     enabled: open && isSuperAdmin,
   });
 
@@ -111,7 +111,9 @@ function EmployeeFormDialog({ open, onOpenChange, employee }: { open: boolean; o
                   <SelectValue placeholder="Select organization" />
                 </SelectTrigger>
                 <SelectContent>
-                  {orgs?.data.map((org) => (
+                  {orgs?.data
+                    .filter((org) => org.clientType === 'B2B' && org.isActive)
+                    .map((org) => (
                     <SelectItem key={org.id} value={org.id}>
                       {org.name}
                     </SelectItem>

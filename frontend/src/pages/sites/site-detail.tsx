@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
@@ -40,6 +40,9 @@ const historyColumns: Column<ParkingEntry>[] = [
       <div>
         <p className="text-sm">{entry.employee?.name ?? '—'}</p>
         <p className="text-xs text-muted-foreground">{entry.organization?.name ?? '—'}</p>
+        {entry.employee?.phone ? (
+          <p className="font-mono text-xs text-muted-foreground">{entry.employee.phone}</p>
+        ) : null}
       </div>
     ),
   },
@@ -61,9 +64,11 @@ const historyColumns: Column<ParkingEntry>[] = [
 
 export function SiteDetailPage() {
   const { id = '' } = useParams();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [historyPage, setHistoryPage] = useState(1);
   const [todayPage, setTodayPage] = useState(1);
+  const highlighted = searchParams.has('highlight');
 
   const isSuperAdmin = user?.role === 'SUPER_ADMIN';
   const isOrgAdmin = user?.role === 'ORG_ADMIN';
@@ -159,6 +164,11 @@ export function SiteDetailPage() {
 
   return (
     <div className="space-y-6">
+      {highlighted ? (
+        <p className="notification-highlight rounded-xl px-4 py-2.5 text-sm font-medium">
+          Opened from your notification — this is the related site.
+        </p>
+      ) : null}
       <PageHeader
         title={site.name}
         description={site.address}

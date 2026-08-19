@@ -12,6 +12,7 @@ import {
   PARKING_SORT_FIELDS,
   parkingHistoryFilterSchema,
   type QuickRegisterInput,
+  type GuestCheckInInput,
 } from '../validators/parking.validator';
 
 export const parkingController = {
@@ -64,6 +65,11 @@ export const parkingController = {
   quickRegister: asyncHandler(async (req: Request, res: Response) => {
     const result = await parkingService.quickRegister(param(req, 'siteCode'), req.body as QuickRegisterInput);
     sendSuccess(res, result, 201, 'Vehicle registered');
+  }),
+
+  guestCheckIn: asyncHandler(async (req: Request, res: Response) => {
+    const result = await parkingService.guestCheckIn(param(req, 'siteCode'), req.body as GuestCheckInInput);
+    sendSuccess(res, result, result.alreadyParked ? 200 : 201, result.alreadyParked ? undefined : 'Guest checked in');
   }),
 
   parkVehicle: asyncHandler(async (req: Request, res: Response) => {

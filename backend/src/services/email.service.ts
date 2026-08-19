@@ -74,6 +74,7 @@ export const emailService = {
     adminName: string;
     email: string;
     password: string;
+    clientType?: 'B2B' | 'B2C';
   }): Promise<void> {
     await sendMail({
       to: params.to,

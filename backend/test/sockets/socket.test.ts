@@ -112,6 +112,67 @@ describe('notifications and dashboard isolation', () => {
     await stopTestServer();
   });
 
+  it('unreadOnly list hides notifications the user has already read', async () => {
+    const admin = new ApiClient();
+    await admin.login(tenantA.admin.email, tenantA.password);
+    const { prisma } = await import('../../src/config/prisma');
+    const unread = await prisma.notification.create({
+      data: {
+        userId: tenantA.admin.id,
+        type: 'SYSTEM',
+        title: 'Unread item',
+        message: 'Show in navbar',
+      },
+    });
+    const read = await prisma.notification.create({
+      data: {
+        userId: tenantA.admin.id,
+        type: 'SYSTEM',
+        title: 'Already read',
+        message: 'Hide from navbar',
+        isRead: true,
+      },
+    });
+
+    const all = await admin.request('/api/v1/notifications?limit=50');
+    expect(all.status).toBe(200);
+    const allIds = dataOf<{ id: string }[]>(all.json).map((n) => n.id);
+    expect(allIds).toEqual(expect.arrayContaining([unread.id, read.id]));
+
+    const unreadOnly = await admin.request('/api/v1/notifications?unreadOnly=true&limit=50');
+    expect(unreadOnly.status).toBe(200);
+    const unreadIds = dataOf<{ id: string }[]>(unreadOnly.json).map((n) => n.id);
+    expect(unreadIds).toContain(unread.id);
+    expect(unreadIds).not.toContain(read.id);
+
+    await admin.request(`/api/v1/notifications/${unread.id}/read`, { method: 'POST', body: '{}' });
+    const afterRead = await admin.request('/api/v1/notifications?unreadOnly=true&limit=50');
+    expect(dataOf<{ id: string }[]>(afterRead.json).map((n) => n.id)).not.toContain(unread.id);
+  });
+
+  it('vehicle parked notification includes parkingEntryId for opening the row', async () => {
+    const token = signAccessToken({ sub: tenantA.valet.id, role: 'VALET', organizationId: null });
+    const socket = await connect(token);
+    const received = new Promise<{ type: string; data: { parkingEntryId?: string; siteId?: string } | null }>(
+      (resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error('timed out waiting for VEHICLE_PARKED')), 4000);
+        socket.on('notification', (payload: { type: string; data: { parkingEntryId?: string; siteId?: string } | null }) => {
+          if (payload.type === 'VEHICLE_PARKED') {
+            clearTimeout(timer);
+            resolve(payload);
+          }
+        });
+      },
+    );
+
+    const publicClient = new ApiClient();
+    await lookupAndPark(publicClient, tenantA.site.siteCode, tenantA.vehicle.vehicleNumber);
+    const payload = await received;
+    expect(payload.data?.parkingEntryId).toMatch(/^c/i);
+    expect(payload.data?.siteId).toBe(tenantA.site.id);
+    socket.disconnect();
+  });
+
   it('read-all is not captured by :id/read', async () => {
     const admin = new ApiClient();
     await admin.login(tenantA.admin.email, tenantA.password);

@@ -2,7 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '@/context/auth-context';
 import { AppShell } from '@/components/layout/app-shell';
 import { BrandLogo } from '@/components/layout/sidebar';
-import { RequireAuth, RequireRole } from '@/components/layout/route-guards';
+import { RequireAuth, RequireB2bOrgFeatures, RequireRole } from '@/components/layout/route-guards';
 import { LoginPage } from '@/pages/auth/login';
 import { ForgotPasswordPage } from '@/pages/auth/forgot-password';
 import { ResetPasswordPage } from '@/pages/auth/reset-password';
@@ -59,8 +59,10 @@ export default function App() {
             <Route path="/valets" element={<ValetsPage />} />
           </Route>
           <Route element={<RequireRole roles={['SUPER_ADMIN', 'ORG_ADMIN']} />}>
-            <Route path="/employees" element={<EmployeesPage />} />
-            <Route path="/vehicles" element={<VehiclesPage />} />
+            <Route element={<RequireB2bOrgFeatures />}>
+              <Route path="/employees" element={<EmployeesPage />} />
+              <Route path="/vehicles" element={<VehiclesPage />} />
+            </Route>
             <Route path="/reports" element={<ReportsPage />} />
           </Route>
           <Route path="/parking" element={<ParkingPage />} />

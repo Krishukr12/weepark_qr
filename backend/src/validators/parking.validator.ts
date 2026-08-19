@@ -6,6 +6,11 @@ export const lookupVehicleSchema = z.object({
   vehicleNumber: vehicleNumberSchema,
 });
 
+export const guestCheckInSchema = z.object({
+  vehicleNumber: vehicleNumberSchema,
+  phone: phoneSchema,
+});
+
 export const quickRegisterSchema = z.object({
   vehicleNumber: vehicleNumberSchema,
   vehicleType: z.nativeEnum(VehicleType).default(VehicleType.CAR),
@@ -61,4 +66,5 @@ export const parkingHistoryFilterSchema = z
 export const PARKING_SORT_FIELDS = ['createdAt', 'updatedAt', 'parkedAt', 'status', 'ticketCode'] as const;
 
 export type QuickRegisterInput = z.infer<typeof quickRegisterSchema>;
+export type GuestCheckInInput = z.infer<typeof guestCheckInSchema>;
 export type ParkingHistoryFilter = z.infer<typeof parkingHistoryFilterSchema>;

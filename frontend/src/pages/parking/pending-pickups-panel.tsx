@@ -4,6 +4,9 @@ import { toast } from 'sonner';
 import { BellRing, Car, CheckCircle2, Hand } from 'lucide-react';
 import { pickupsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { highlightDomId } from '@/lib/notification-target';
+import { cn } from '@/lib/utils';
+import { useHighlightParam } from '@/hooks/use-highlight-param';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -11,7 +14,7 @@ import { PickupStatusBadge } from '@/components/shared/status-badge';
 import { EmptyState } from '@/components/shared/empty-state';
 import type { PickupRequest } from '@/types';
 
-function PickupRow({ pickup }: { pickup: PickupRequest }) {
+function PickupRow({ pickup, highlighted }: { pickup: PickupRequest; highlighted: boolean }) {
   const queryClient = useQueryClient();
 
   const invalidate = () => {
@@ -41,7 +44,13 @@ function PickupRow({ pickup }: { pickup: PickupRequest }) {
   const { vehicle, employee, site } = pickup.parkingEntry;
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between">
+    <div
+      id={highlighted ? highlightDomId(pickup.id) : undefined}
+      className={cn(
+        'flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center sm:justify-between',
+        highlighted && 'notification-highlight',
+      )}
+    >
       <div className="flex items-start gap-3">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-brand/12">
           <Car className="size-5 text-brand" />
@@ -90,6 +99,8 @@ export function PendingPickupsPanel() {
     refetchInterval: 30_000,
   });
 
+  const highlightPickupId = useHighlightParam('pickup', Boolean(data));
+
   return (
     <Card>
       <CardHeader className="flex flex-row items-center justify-between">
@@ -105,7 +116,9 @@ export function PendingPickupsPanel() {
         {isLoading ? (
           Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-20 w-full" />)
         ) : data && data.length > 0 ? (
-          data.map((pickup) => <PickupRow key={pickup.id} pickup={pickup} />)
+          data.map((pickup) => (
+            <PickupRow key={pickup.id} pickup={pickup} highlighted={pickup.id === highlightPickupId} />
+          ))
         ) : (
           <EmptyState icon={BellRing} title="No active pickups" description="New pickup requests will appear here instantly." />
         )}
