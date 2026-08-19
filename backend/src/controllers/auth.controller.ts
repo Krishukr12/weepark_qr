@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler';
 import { param } from '../utils/request';
 import { sendSuccess } from '../utils/response';
 import { ApiError } from '../utils/apiError';
+import { assertSameSiteOrigin, clearRefreshCookie, readRefreshToken, setRefreshCookie } from '../utils/cookies';
 import type { UpdateProfileInput } from '../validators/auth.validator';
 
 function loginContext(req: Request): { userAgent?: string; ipAddress?: string } {
@@ -15,18 +16,23 @@ export const authController = {
   login: asyncHandler(async (req: Request, res: Response) => {
     const { email, password } = req.body as { email: string; password: string };
     const result = await authService.login(email, password, loginContext(req));
-    sendSuccess(res, result, 200, 'Logged in successfully');
+    setRefreshCookie(res, result.refreshToken);
+    sendSuccess(res, { user: result.user, accessToken: result.accessToken }, 200, 'Logged in successfully');
   }),
 
   refresh: asyncHandler(async (req: Request, res: Response) => {
-    const { refreshToken } = req.body as { refreshToken: string };
+    assertSameSiteOrigin(req);
+    const refreshToken = readRefreshToken(req);
+    if (!refreshToken) throw ApiError.unauthorized('Refresh token is missing');
     const result = await authService.refresh(refreshToken, loginContext(req));
-    sendSuccess(res, result);
+    setRefreshCookie(res, result.refreshToken);
+    sendSuccess(res, { user: result.user, accessToken: result.accessToken });
   }),
 
   logout: asyncHandler(async (req: Request, res: Response) => {
-    const { refreshToken } = req.body as { refreshToken: string };
-    await authService.logout(refreshToken);
+    const refreshToken = readRefreshToken(req);
+    if (refreshToken) await authService.logout(refreshToken);
+    clearRefreshCookie(res);
     sendSuccess(res, null, 200, 'Logged out successfully');
   }),
 

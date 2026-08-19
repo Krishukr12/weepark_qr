@@ -10,7 +10,7 @@ export function signAccessToken(payload: AuthTokenPayload): string {
 }
 
 export function signRefreshToken(payload: AuthTokenPayload): string {
-  return jwt.sign(payload, env.JWT_REFRESH_SECRET, {
+  return jwt.sign({ ...payload, jti: generateRandomToken(16) }, env.JWT_REFRESH_SECRET, {
     expiresIn: env.JWT_REFRESH_EXPIRES_IN,
   } as SignOptions);
 }

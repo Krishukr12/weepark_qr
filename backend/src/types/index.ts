@@ -4,7 +4,6 @@ export interface AuthTokenPayload {
   sub: string;
   role: Role;
   organizationId: string | null;
-  email: string;
 }
 
 export interface AuthenticatedUser {

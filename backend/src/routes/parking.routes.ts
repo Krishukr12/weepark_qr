@@ -3,22 +3,58 @@ import { parkingController } from '../controllers/parking.controller';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
-import { lookupVehicleSchema, parkVehicleSchema, quickRegisterSchema } from '../validators/parking.validator';
+import {
+  publicLookupLimiter,
+  publicParkLimiter,
+  publicRegisterLimiter,
+} from '../middlewares/rateLimiter';
+import {
+  idParamsSchema,
+  lookupVehicleSchema,
+  parkVehicleSchema,
+  parkingHistoryFilterSchema,
+  parkingSessionSchema,
+  quickRegisterSchema,
+  siteCodeParamsSchema,
+} from '../validators/parking.validator';
 
 export const parkingRoutes = Router();
 
 parkingRoutes.use(authenticate, authorize('SUPER_ADMIN', 'ORG_ADMIN', 'VALET'));
 
-parkingRoutes.get('/', parkingController.history);
-parkingRoutes.get('/export/csv', parkingController.exportCsv);
-parkingRoutes.get('/export/excel', parkingController.exportExcel);
-parkingRoutes.get('/:id', parkingController.getById);
+parkingRoutes.get('/', validate({ query: parkingHistoryFilterSchema }), parkingController.history);
+parkingRoutes.get('/export/csv', validate({ query: parkingHistoryFilterSchema }), parkingController.exportCsv);
+parkingRoutes.get('/export/excel', validate({ query: parkingHistoryFilterSchema }), parkingController.exportExcel);
+parkingRoutes.get('/:id', validate({ params: idParamsSchema }), parkingController.getById);
 
-/** Public QR-flow routes — no authentication, mounted separately. */
 export const publicParkingRoutes = Router();
 
-publicParkingRoutes.get('/sites/:siteCode', parkingController.getPublicSite);
-publicParkingRoutes.post('/sites/:siteCode/lookup', validate({ body: lookupVehicleSchema }), parkingController.lookupVehicle);
-publicParkingRoutes.post('/sites/:siteCode/register', validate({ body: quickRegisterSchema }), parkingController.quickRegister);
-publicParkingRoutes.post('/sites/:siteCode/park', validate({ body: parkVehicleSchema }), parkingController.parkVehicle);
-publicParkingRoutes.get('/entries/:id', parkingController.getParkingStatus);
+publicParkingRoutes.get(
+  '/sites/:siteCode',
+  validate({ params: siteCodeParamsSchema }),
+  parkingController.getPublicSite,
+);
+publicParkingRoutes.post(
+  '/sites/:siteCode/lookup',
+  publicLookupLimiter,
+  validate({ params: siteCodeParamsSchema, body: lookupVehicleSchema }),
+  parkingController.lookupVehicle,
+);
+publicParkingRoutes.post(
+  '/sites/:siteCode/register',
+  publicRegisterLimiter,
+  validate({ params: siteCodeParamsSchema, body: quickRegisterSchema }),
+  parkingController.quickRegister,
+);
+publicParkingRoutes.post(
+  '/sites/:siteCode/park',
+  publicParkLimiter,
+  validate({ params: siteCodeParamsSchema, body: parkVehicleSchema }),
+  parkingController.parkVehicle,
+);
+publicParkingRoutes.post(
+  '/session/status',
+  publicLookupLimiter,
+  validate({ body: parkingSessionSchema }),
+  parkingController.getParkingSession,
+);

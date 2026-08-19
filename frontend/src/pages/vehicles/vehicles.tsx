@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Car, MoreHorizontal, Pencil, Plus, Star, Trash2 } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { employeesApi, vehiclesApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { FUEL_TYPES, VEHICLE_TYPES, vehicleSchema, type VehicleForm } from '@/lib/form-schemas';
 import { useListState } from '@/hooks/use-list-state';
 import { PageHeader } from '@/components/shared/page-header';
 import { DataTable, type Column } from '@/components/shared/data-table';
@@ -27,23 +27,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import type { FuelType, Vehicle, VehicleType } from '@/types';
-
-const VEHICLE_TYPES: VehicleType[] = ['CAR', 'SUV', 'BIKE', 'SCOOTER', 'EV', 'OTHER'];
-const FUEL_TYPES: FuelType[] = ['PETROL', 'DIESEL', 'ELECTRIC', 'HYBRID', 'CNG', 'OTHER'];
-
-const vehicleSchema = z.object({
-  vehicleNumber: z.string().min(4, 'Vehicle number is too short'),
-  vehicleType: z.enum(VEHICLE_TYPES),
-  brand: z.string().or(z.literal('')),
-  model: z.string().or(z.literal('')),
-  color: z.string().or(z.literal('')),
-  fuelType: z.enum(FUEL_TYPES),
-  rcNumber: z.string().or(z.literal('')),
-  isPrimary: z.boolean(),
-  employeeId: z.string().min(1, 'Select an employee'),
-});
-
-type VehicleForm = z.infer<typeof vehicleSchema>;
 
 function VehicleFormDialog({ open, onOpenChange, vehicle }: { open: boolean; onOpenChange: (open: boolean) => void; vehicle: Vehicle | null }) {
   const queryClient = useQueryClient();

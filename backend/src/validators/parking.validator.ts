@@ -1,17 +1,11 @@
 import { z } from 'zod';
 import { FuelType, ParkingStatus, VehicleType } from '@prisma/client';
-
-const vehicleNumberSchema = z
-  .string()
-  .min(4, 'Vehicle number is too short')
-  .max(20)
-  .transform((v) => v.toUpperCase().replace(/[\s-]/g, ''));
+import { cuidId, dateRangeRefine, phoneSchema, siteCodeSchema, vehicleNumberSchema } from './common';
 
 export const lookupVehicleSchema = z.object({
   vehicleNumber: vehicleNumberSchema,
 });
 
-/** Quick registration used from the public QR page when a vehicle is unknown. */
 export const quickRegisterSchema = z.object({
   vehicleNumber: vehicleNumberSchema,
   vehicleType: z.nativeEnum(VehicleType).default(VehicleType.CAR),
@@ -22,27 +16,49 @@ export const quickRegisterSchema = z.object({
   employee: z.object({
     name: z.string().min(2, 'Name is too short').max(100),
     email: z.string().email('Invalid email'),
-    phone: z.string().min(6, 'Phone is too short').max(20),
+    phone: phoneSchema,
     employeeCode: z.string().min(1, 'Employee ID is required').max(50),
-    organizationId: z.string().min(1, 'Organization is required'),
+    organizationId: cuidId,
   }),
 });
 
 export const parkVehicleSchema = z.object({
-  vehicleId: z.string().min(1, 'Vehicle is required'),
+  parkToken: z.string().min(20, 'Parking authorization is required').max(2000),
   notes: z.string().max(500).optional(),
 });
 
-export const parkingHistoryFilterSchema = z.object({
-  status: z.nativeEnum(ParkingStatus).optional(),
-  siteId: z.string().optional(),
-  organizationId: z.string().optional(),
-  employeeId: z.string().optional(),
-  vehicleId: z.string().optional(),
-  valetId: z.string().optional(),
-  dateFrom: z.coerce.date().optional(),
-  dateTo: z.coerce.date().optional(),
+export const parkingSessionSchema = z.object({
+  sessionToken: z.string().min(20, 'Parking session is required').max(2000),
 });
+
+export const publicPickupSchema = z.object({
+  sessionToken: z.string().min(20, 'Parking session is required').max(2000),
+  vehicleNumber: vehicleNumberSchema,
+  ticketCode: z.string().min(8).max(40),
+});
+
+export const siteCodeParamsSchema = z.object({
+  siteCode: siteCodeSchema,
+});
+
+export const idParamsSchema = z.object({
+  id: cuidId,
+});
+
+export const parkingHistoryFilterSchema = z
+  .object({
+    status: z.nativeEnum(ParkingStatus).optional(),
+    siteId: cuidId.optional(),
+    organizationId: cuidId.optional(),
+    employeeId: cuidId.optional(),
+    vehicleId: cuidId.optional(),
+    valetId: cuidId.optional(),
+    dateFrom: z.coerce.date().optional(),
+    dateTo: z.coerce.date().optional(),
+  })
+  .refine(dateRangeRefine, { message: 'dateFrom must be before dateTo', path: ['dateFrom'] });
+
+export const PARKING_SORT_FIELDS = ['createdAt', 'updatedAt', 'parkedAt', 'status', 'ticketCode'] as const;
 
 export type QuickRegisterInput = z.infer<typeof quickRegisterSchema>;
 export type ParkingHistoryFilter = z.infer<typeof parkingHistoryFilterSchema>;

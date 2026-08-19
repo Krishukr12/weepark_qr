@@ -9,6 +9,7 @@ import { buildPaginatedResult } from '../utils/pagination';
 import { emailService } from './email.service';
 import { notificationService } from './notification.service';
 import { recordAudit } from './audit.service';
+import { revokeAllRefreshTokens } from '../utils/sessions';
 import type { PaginatedResult, PaginationParams } from '../types';
 import type {
   CreateOrganizationInput,
@@ -227,6 +228,10 @@ export const organizationService = {
         where: { organizationId: id, role: 'ORG_ADMIN' },
         data: { isActive: input.isActive },
       });
+      if (input.isActive === false) {
+        const users = await prisma.user.findMany({ where: { organizationId: id }, select: { id: true } });
+        await Promise.all(users.map((user) => revokeAllRefreshTokens(user.id)));
+      }
     }
 
     await recordAudit({ userId: actorId, action: 'ORGANIZATION_UPDATED', entity: 'Organization', entityId: id });

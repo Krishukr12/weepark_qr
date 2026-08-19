@@ -8,5 +8,5 @@ notificationRoutes.use(authenticate);
 
 notificationRoutes.get('/', notificationController.list);
 notificationRoutes.get('/unread-count', notificationController.unreadCount);
-notificationRoutes.post('/:id/read', notificationController.markRead);
 notificationRoutes.post('/read-all', notificationController.markAllRead);
+notificationRoutes.post('/:id/read', notificationController.markRead);

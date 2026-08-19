@@ -1,23 +1,29 @@
 import { Router } from 'express';
-import { z } from 'zod';
 import { pickupController } from '../controllers/pickup.controller';
 import { authenticate } from '../middlewares/auth';
 import { authorize } from '../middlewares/authorize';
 import { validate } from '../middlewares/validate';
+import { publicPickupLimiter } from '../middlewares/rateLimiter';
+import { idParamsSchema, publicPickupSchema } from '../validators/parking.validator';
 
 export const pickupRoutes = Router();
 
 pickupRoutes.use(authenticate, authorize('SUPER_ADMIN', 'ORG_ADMIN', 'VALET'));
 
 pickupRoutes.get('/', pickupController.list);
-pickupRoutes.post('/:id/accept', authorize('VALET'), pickupController.accept);
-pickupRoutes.post('/:id/complete', authorize('VALET', 'SUPER_ADMIN'), pickupController.complete);
+pickupRoutes.post('/:id/accept', authorize('VALET'), validate({ params: idParamsSchema }), pickupController.accept);
+pickupRoutes.post(
+  '/:id/complete',
+  authorize('VALET', 'SUPER_ADMIN'),
+  validate({ params: idParamsSchema }),
+  pickupController.complete,
+);
 
-/** Public — "GET MY CAR" from the QR page. */
 export const publicPickupRoutes = Router();
 
 publicPickupRoutes.post(
   '/request',
-  validate({ body: z.object({ parkingEntryId: z.string().min(1, 'parkingEntryId is required') }) }),
+  publicPickupLimiter,
+  validate({ body: publicPickupSchema }),
   pickupController.request,
 );

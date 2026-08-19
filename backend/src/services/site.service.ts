@@ -131,7 +131,15 @@ export const siteService = {
         where: { siteId: id },
         select: {
           assignedAt: true,
-          valet: { select: { id: true, name: true, email: true, phone: true, photoUrl: true, isActive: true } },
+        valet: {
+          select: {
+            id: true,
+            name: true,
+            ...(actor.role === 'SUPER_ADMIN' ? { email: true, phone: true } : {}),
+            photoUrl: true,
+            isActive: true,
+          },
+        },
         },
       }),
       actor.role === 'ORG_ADMIN' && actor.organizationId

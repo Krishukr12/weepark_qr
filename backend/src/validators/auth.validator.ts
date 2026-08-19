@@ -1,20 +1,17 @@
 import { z } from 'zod';
+import { optionalPhoneSchema, optionalUrl } from './common';
 
 export const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((v) => v.toLowerCase()),
   password: z.string().min(1, 'Password is required'),
 });
 
-export const refreshSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
-});
-
 export const forgotPasswordSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((v) => v.toLowerCase()),
 });
 
 export const resetPasswordSchema = z.object({
-  token: z.string().min(1, 'Token is required'),
+  token: z.string().min(1, 'Token is required').max(200),
   password: z
     .string()
     .min(8, 'Password must be at least 8 characters')
@@ -33,8 +30,8 @@ export const changePasswordSchema = z.object({
 
 export const updateProfileSchema = z.object({
   name: z.string().min(2, 'Name is too short').max(100).optional(),
-  phone: z.string().max(20).optional().nullable(),
-  photoUrl: z.string().url('Invalid URL').optional().nullable(),
+  phone: optionalPhoneSchema,
+  photoUrl: optionalUrl,
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

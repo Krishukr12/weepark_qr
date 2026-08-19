@@ -21,7 +21,7 @@ export function validate(schemas: ValidationSchemas) {
           field: issue.path.join('.'),
           message: issue.message,
         }));
-        next(ApiError.badRequest('Validation failed', details));
+        next(ApiError.validation('Validation failed', details));
         return;
       }
       next(error);

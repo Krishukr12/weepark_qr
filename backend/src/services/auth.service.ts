@@ -11,6 +11,7 @@ import {
   signRefreshToken,
   verifyRefreshToken,
 } from '../utils/token';
+import { revokeAllRefreshTokens } from '../utils/sessions';
 import { emailService } from './email.service';
 import { recordAudit } from './audit.service';
 import type { AuthenticatedUser, AuthTokenPayload } from '../types';
@@ -28,7 +29,7 @@ interface AuthResult {
 }
 
 function toPayload(user: User): AuthTokenPayload {
-  return { sub: user.id, role: user.role, organizationId: user.organizationId, email: user.email };
+  return { sub: user.id, role: user.role, organizationId: user.organizationId };
 }
 
 function toAuthUser(user: User): AuthResult['user'] {
@@ -44,11 +45,7 @@ function toAuthUser(user: User): AuthResult['user'] {
   };
 }
 
-async function issueTokens(user: User, context: LoginContext): Promise<Omit<AuthResult, 'user'>> {
-  const payload = toPayload(user);
-  const accessToken = signAccessToken(payload);
-  const refreshToken = signRefreshToken(payload);
-
+async function persistRefreshToken(user: User, refreshToken: string, context: LoginContext): Promise<void> {
   await prisma.refreshToken.create({
     data: {
       tokenHash: hashToken(refreshToken),
@@ -58,7 +55,13 @@ async function issueTokens(user: User, context: LoginContext): Promise<Omit<Auth
       expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
     },
   });
+}
 
+async function issueTokens(user: User, context: LoginContext): Promise<Omit<AuthResult, 'user'>> {
+  const payload = toPayload(user);
+  const accessToken = signAccessToken(payload);
+  const refreshToken = signRefreshToken(payload);
+  await persistRefreshToken(user, refreshToken, context);
   return { accessToken, refreshToken };
 }
 
@@ -66,6 +69,12 @@ export const authService = {
   async login(email: string, password: string, context: LoginContext): Promise<AuthResult> {
     const user = await userRepository.findByEmail(email);
     if (!user || !(await verifyPassword(password, user.passwordHash))) {
+      await recordAudit({
+        action: 'LOGIN_FAILED',
+        entity: 'User',
+        metadata: { email: email.toLowerCase() },
+        ipAddress: context.ipAddress,
+      });
       throw ApiError.unauthorized('Invalid email or password');
     }
     if (!user.isActive) {
@@ -73,7 +82,13 @@ export const authService = {
     }
 
     const tokens = await issueTokens(user, context);
-    await recordAudit({ userId: user.id, action: 'LOGIN', entity: 'User', entityId: user.id, ipAddress: context.ipAddress });
+    await recordAudit({
+      userId: user.id,
+      action: 'LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      ipAddress: context.ipAddress,
+    });
     return { user: toAuthUser(user), ...tokens };
   },
 
@@ -85,20 +100,63 @@ export const authService = {
       throw ApiError.unauthorized('Invalid or expired refresh token');
     }
 
-    const stored = await prisma.refreshToken.findUnique({ where: { tokenHash: hashToken(refreshToken) } });
-    if (!stored || stored.revokedAt || stored.expiresAt < new Date()) {
-      throw ApiError.unauthorized('Refresh token has been revoked or expired');
+    const tokenHash = hashToken(refreshToken);
+
+    const tokens = await prisma.$transaction(async (tx) => {
+      const stored = await tx.refreshToken.findUnique({ where: { tokenHash } });
+      if (!stored) return { kind: 'missing' as const };
+
+      if (stored.revokedAt) {
+        await tx.refreshToken.updateMany({
+          where: { userId: stored.userId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        return { kind: 'reuse' as const };
+      }
+
+      if (stored.expiresAt < new Date()) {
+        return { kind: 'expired' as const };
+      }
+
+      const claimed = await tx.refreshToken.updateMany({
+        where: { id: stored.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (claimed.count === 0) return { kind: 'missing' as const };
+
+      const user = await tx.user.findUnique({ where: { id: payload.sub } });
+      if (!user || !user.isActive) {
+        return { kind: 'inactive' as const };
+      }
+
+      const nextPayload = toPayload(user);
+      const accessToken = signAccessToken(nextPayload);
+      const nextRefresh = signRefreshToken(nextPayload);
+      await tx.refreshToken.create({
+        data: {
+          tokenHash: hashToken(nextRefresh),
+          userId: user.id,
+          userAgent: context.userAgent ?? null,
+          ipAddress: context.ipAddress ?? null,
+          expiresAt: new Date(Date.now() + parseDurationToMs(env.JWT_REFRESH_EXPIRES_IN)),
+        },
+      });
+
+      return { kind: 'ok' as const, user, accessToken, refreshToken: nextRefresh };
+    });
+
+    if (tokens.kind === 'reuse') {
+      throw ApiError.unauthorized('Refresh token reuse detected. Please sign in again.');
+    }
+    if (tokens.kind !== 'ok') {
+      throw ApiError.unauthorized(
+        tokens.kind === 'inactive'
+          ? 'Account is inactive or no longer exists'
+          : 'Refresh token has been revoked or expired',
+      );
     }
 
-    const user = await userRepository.findById(payload.sub);
-    if (!user || !user.isActive) {
-      throw ApiError.unauthorized('Account is inactive or no longer exists');
-    }
-
-    // Rotate: revoke the old token, issue a fresh pair.
-    await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
-    const tokens = await issueTokens(user, context);
-    return { user: toAuthUser(user), ...tokens };
+    return { user: toAuthUser(tokens.user), accessToken: tokens.accessToken, refreshToken: tokens.refreshToken };
   },
 
   async logout(refreshToken: string): Promise<void> {
@@ -110,8 +168,12 @@ export const authService = {
 
   async forgotPassword(email: string): Promise<void> {
     const user = await userRepository.findByEmail(email);
-    // Always succeed silently so the endpoint can't be used to enumerate accounts.
     if (!user || !user.isActive) return;
+
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+      data: { usedAt: new Date() },
+    });
 
     const token = generateRandomToken();
     await prisma.passwordResetToken.create({
@@ -122,7 +184,11 @@ export const authService = {
       },
     });
 
-    await emailService.sendPasswordResetRequest({ to: user.email, name: user.name, token });
+    try {
+      await emailService.sendPasswordResetRequest({ to: user.email, name: user.name, token });
+    } catch {
+      // Do not leak whether the account exists if delivery fails.
+    }
   },
 
   async resetPassword(token: string, newPassword: string): Promise<void> {
@@ -139,8 +205,10 @@ export const authService = {
     await prisma.$transaction([
       prisma.user.update({ where: { id: stored.userId }, data: { passwordHash } }),
       prisma.passwordResetToken.update({ where: { id: stored.id }, data: { usedAt: new Date() } }),
-      // Revoke all sessions after a password reset.
-      prisma.refreshToken.updateMany({ where: { userId: stored.userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+      prisma.refreshToken.updateMany({
+        where: { userId: stored.userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      }),
     ]);
 
     await emailService.sendPasswordResetSuccess({ to: stored.user.email, name: stored.user.name });
@@ -155,7 +223,10 @@ export const authService = {
       throw ApiError.badRequest('Current password is incorrect');
     }
 
-    await userRepository.update(userId, { passwordHash: await hashPassword(newPassword) });
+    await prisma.$transaction([
+      prisma.user.update({ where: { id: userId }, data: { passwordHash: await hashPassword(newPassword) } }),
+      prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } }),
+    ]);
     await recordAudit({ userId, action: 'PASSWORD_CHANGE', entity: 'User', entityId: userId });
   },
 
@@ -173,4 +244,6 @@ export const authService = {
       data: { revokedAt: new Date() },
     });
   },
+
+  revokeAllRefreshTokens,
 };

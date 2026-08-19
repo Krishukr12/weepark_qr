@@ -78,10 +78,20 @@ export const dashboardService = {
         prisma.site.aggregate({ where: { isActive: true, ...siteScope }, _sum: { totalCapacity: true } }),
         actor.role === 'SUPER_ADMIN' ? prisma.organization.count({ where: { isActive: true } }) : Promise.resolve(0),
         prisma.employee.count({
-          where: actor.role === 'ORG_ADMIN' ? { organizationId: actor.organizationId ?? '' } : {},
+          where:
+            actor.role === 'ORG_ADMIN'
+              ? { organizationId: actor.organizationId ?? '' }
+              : actor.role === 'VALET'
+                ? { id: { in: [] } }
+                : {},
         }),
         prisma.vehicle.count({
-          where: actor.role === 'ORG_ADMIN' ? { employee: { organizationId: actor.organizationId ?? '' } } : {},
+          where:
+            actor.role === 'ORG_ADMIN'
+              ? { employee: { organizationId: actor.organizationId ?? '' } }
+              : actor.role === 'VALET'
+                ? { id: { in: [] } }
+                : {},
         }),
         prisma.site.count({ where: { isActive: true, ...siteScope } }),
         actor.role === 'SUPER_ADMIN' ? prisma.user.count({ where: { role: 'VALET', isActive: true } }) : Promise.resolve(0),

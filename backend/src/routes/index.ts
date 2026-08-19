@@ -11,6 +11,8 @@ import { notificationRoutes } from './notification.routes';
 import { dashboardRoutes } from './dashboard.routes';
 import { auditRoutes } from './audit.routes';
 import { organizationController } from '../controllers/organization.controller';
+import { validate } from '../middlewares/validate';
+import { publicOrganizationsQuerySchema } from '../validators/organization.validator';
 
 export const apiRouter = Router();
 
@@ -31,4 +33,8 @@ export const publicRouter = Router();
 
 publicRouter.use('/parking', publicParkingRoutes);
 publicRouter.use('/pickups', publicPickupRoutes);
-publicRouter.get('/organizations', organizationController.listPublic);
+publicRouter.get(
+  '/organizations',
+  validate({ query: publicOrganizationsQuerySchema }),
+  organizationController.listPublic,
+);

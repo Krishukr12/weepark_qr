@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence, motion } from 'framer-motion';
 import { format } from 'date-fns';
@@ -24,6 +23,7 @@ import {
 } from 'lucide-react';
 import { publicApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
+import { FUEL_TYPES, publicRegisterSchema, VEHICLE_TYPES, type PublicRegisterForm } from '@/lib/form-schemas';
 import { cn, formatDuration } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,29 +33,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FormField } from '@/components/shared/form-field';
 import { BrandLogo } from '@/components/layout/sidebar';
-import type { FuelType, ParkingEntry, PublicSite, Vehicle, VehicleType } from '@/types';
+import type { FuelType, PublicParkingStatus, PublicSite, PublicVehicleDisplay, VehicleType } from '@/types';
 
 type Step = 'lookup' | 'register' | 'confirm' | 'parked';
 
-const ENTRY_STORAGE_KEY = 'weepark.activeEntry';
+const SESSION_STORAGE_KEY = 'weepark.parkingSession';
 
-const VEHICLE_TYPES: VehicleType[] = ['CAR', 'SUV', 'BIKE', 'SCOOTER', 'EV', 'OTHER'];
-const FUEL_TYPES: FuelType[] = ['PETROL', 'DIESEL', 'ELECTRIC', 'HYBRID', 'CNG', 'OTHER'];
-
-const registerSchema = z.object({
-  vehicleType: z.enum(VEHICLE_TYPES),
-  fuelType: z.enum(FUEL_TYPES),
-  brand: z.string().or(z.literal('')),
-  model: z.string().or(z.literal('')),
-  color: z.string().or(z.literal('')),
-  employeeName: z.string().min(2, 'Enter your name'),
-  employeeEmail: z.string().email('Enter a valid email'),
-  employeePhone: z.string().min(6, 'Enter a valid phone'),
-  employeeCode: z.string().min(1, 'Enter your employee ID'),
-  organizationId: z.string().min(1, 'Select your organization'),
-});
-
-type RegisterForm = z.infer<typeof registerSchema>;
+interface StoredSession {
+  siteCode: string;
+  sessionToken: string;
+  ticketCode: string;
+  vehicleNumber: string;
+}
 
 function useLiveDuration(startIso: string | undefined): string {
   const [now, setNow] = useState(Date.now());
@@ -109,8 +98,12 @@ export function PublicParkingPage() {
 
   const [step, setStep] = useState<Step>('lookup');
   const [vehicleNumber, setVehicleNumber] = useState('');
-  const [vehicle, setVehicle] = useState<Vehicle | null>(null);
-  const [entry, setEntry] = useState<ParkingEntry | null>(null);
+  const [display, setDisplay] = useState<PublicVehicleDisplay | null>(null);
+  const [parkToken, setParkToken] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [parking, setParking] = useState<PublicParkingStatus | null>(null);
+  const [pollErrors, setPollErrors] = useState(0);
+  const [pageVisible, setPageVisible] = useState(typeof document === 'undefined' ? true : document.visibilityState === 'visible');
 
   const site = useQuery({
     queryKey: ['public-site', siteCode],
@@ -124,57 +117,95 @@ export function PublicParkingPage() {
     enabled: step === 'register',
   });
 
-  // Restore an in-progress parking session on refresh.
   useEffect(() => {
-    const storedId = localStorage.getItem(ENTRY_STORAGE_KEY);
-    if (!storedId) return;
-    publicApi
-      .getEntry(storedId)
-      .then((restored) => {
-        if (restored.status !== 'COMPLETED' && restored.status !== 'CANCELLED') {
-          setEntry(restored);
-          setStep('parked');
-        } else {
-          localStorage.removeItem(ENTRY_STORAGE_KEY);
-        }
-      })
-      .catch(() => localStorage.removeItem(ENTRY_STORAGE_KEY));
+    const onVis = () => setPageVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
   }, []);
 
-  // Poll the entry while parked so pickup progress updates live.
+  // Restore an in-progress parking session on refresh — only for this site.
+  useEffect(() => {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw || !siteCode) return;
+    try {
+      const stored = JSON.parse(raw) as StoredSession;
+      if (stored.siteCode !== siteCode || !stored.sessionToken) {
+        localStorage.removeItem(SESSION_STORAGE_KEY);
+        return;
+      }
+      publicApi
+        .getSession(stored.sessionToken)
+        .then((status) => {
+          if (status.status === 'COMPLETED' || status.status === 'CANCELLED') {
+            localStorage.removeItem(SESSION_STORAGE_KEY);
+            return;
+          }
+          setSessionToken(stored.sessionToken);
+          setParking(status);
+          setStep('parked');
+        })
+        .catch(() => localStorage.removeItem(SESSION_STORAGE_KEY));
+    } catch {
+      localStorage.removeItem(SESSION_STORAGE_KEY);
+    }
+  }, [siteCode]);
+
   const entryStatus = useQuery({
-    queryKey: ['public-entry', entry?.id],
-    queryFn: () => publicApi.getEntry(entry?.id ?? ''),
-    enabled: step === 'parked' && Boolean(entry?.id),
-    refetchInterval: 10_000,
+    queryKey: ['public-session', sessionToken],
+    queryFn: () => publicApi.getSession(sessionToken ?? ''),
+    enabled: step === 'parked' && Boolean(sessionToken) && pageVisible,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      if (status === 'COMPLETED' || status === 'CANCELLED') return false;
+      if (!pageVisible) return false;
+      const failures = query.state.errorUpdateCount + pollErrors;
+      if (failures > 8) return false;
+      return Math.min(10_000 * 2 ** Math.min(failures, 4), 60_000);
+    },
+    retry: 1,
   });
 
-  const liveEntry = entryStatus.data ?? entry;
+  const liveEntry = entryStatus.data ?? parking;
   const duration = useLiveDuration(liveEntry?.parkedAt);
 
   useEffect(() => {
+    if (entryStatus.isError) setPollErrors((n) => n + 1);
+    if (entryStatus.isSuccess) setPollErrors(0);
+  }, [entryStatus.isError, entryStatus.isSuccess]);
+
+  useEffect(() => {
     if (liveEntry?.status === 'COMPLETED') {
-      localStorage.removeItem(ENTRY_STORAGE_KEY);
+      localStorage.removeItem(SESSION_STORAGE_KEY);
     }
   }, [liveEntry?.status]);
 
   const lookup = useMutation({
     mutationFn: () => publicApi.lookupVehicle(siteCode, vehicleNumber),
     onSuccess: (result) => {
-      if (result.activeParking) {
-        setEntry(result.activeParking);
-        localStorage.setItem(ENTRY_STORAGE_KEY, result.activeParking.id);
+      if (result.alreadyParked && result.sessionToken && result.parking) {
+        setSessionToken(result.sessionToken);
+        setParking(result.parking);
+        localStorage.setItem(
+          SESSION_STORAGE_KEY,
+          JSON.stringify({
+            siteCode,
+            sessionToken: result.sessionToken,
+            ticketCode: result.parking.ticketCode,
+            vehicleNumber: result.vehicleNumber,
+          } satisfies StoredSession),
+        );
         setStep('parked');
         return;
       }
-      if (result.found && result.vehicle && !result.canParkAtSite) {
+      if (result.found && !result.canParkAtSite) {
         toast.error(
-          `${result.vehicle.employee.organization.companyName} is not assigned to park at this site. Please contact your admin.`,
+          `${result.display?.organizationName ?? 'Your organization'} is not assigned to park at this site. Please contact your admin.`,
         );
         return;
       }
-      if (result.found && result.vehicle) {
-        setVehicle(result.vehicle);
+      if (result.found && result.parkToken && result.display) {
+        setDisplay(result.display);
+        setParkToken(result.parkToken);
         setStep('confirm');
         return;
       }
@@ -183,8 +214,8 @@ export function PublicParkingPage() {
     onError: (error) => toast.error(getApiErrorMessage(error)),
   });
 
-  const registerForm = useForm<RegisterForm>({
-    resolver: zodResolver(registerSchema),
+  const registerForm = useForm<PublicRegisterForm>({
+    resolver: zodResolver(publicRegisterSchema),
     defaultValues: {
       vehicleType: 'CAR', fuelType: 'PETROL', brand: '', model: '', color: '',
       employeeName: '', employeeEmail: '', employeePhone: '', employeeCode: '', organizationId: '',
@@ -192,7 +223,7 @@ export function PublicParkingPage() {
   });
 
   const register = useMutation({
-    mutationFn: (values: RegisterForm) =>
+    mutationFn: (values: PublicRegisterForm) =>
       publicApi.quickRegister(siteCode, {
         vehicleNumber,
         vehicleType: values.vehicleType,
@@ -209,7 +240,8 @@ export function PublicParkingPage() {
         },
       }),
     onSuccess: (registered) => {
-      setVehicle(registered);
+      setDisplay(registered.display);
+      setParkToken(registered.parkToken);
       setStep('confirm');
       toast.success('Vehicle registered');
     },
@@ -217,10 +249,19 @@ export function PublicParkingPage() {
   });
 
   const park = useMutation({
-    mutationFn: () => publicApi.park(siteCode, vehicle?.id ?? ''),
+    mutationFn: () => publicApi.park(siteCode, parkToken ?? ''),
     onSuccess: (created) => {
-      setEntry(created);
-      localStorage.setItem(ENTRY_STORAGE_KEY, created.id);
+      setParking(created.parking);
+      setSessionToken(created.sessionToken);
+      localStorage.setItem(
+        SESSION_STORAGE_KEY,
+        JSON.stringify({
+          siteCode,
+          sessionToken: created.sessionToken,
+          ticketCode: created.parking.ticketCode,
+          vehicleNumber: created.parking.vehicleNumber,
+        } satisfies StoredSession),
+      );
       setStep('parked');
       void queryClient.invalidateQueries({ queryKey: ['public-site', siteCode] });
       toast.success('Vehicle parked — enjoy your day!');
@@ -229,9 +270,10 @@ export function PublicParkingPage() {
   });
 
   const requestPickup = useMutation({
-    mutationFn: () => publicApi.requestPickup(liveEntry?.id ?? ''),
+    mutationFn: () =>
+      publicApi.requestPickup(sessionToken ?? '', liveEntry?.vehicleNumber ?? '', liveEntry?.ticketCode ?? ''),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ['public-entry'] });
+      void queryClient.invalidateQueries({ queryKey: ['public-session'] });
       toast.success('Pickup requested — a valet is on the way!');
     },
     onError: (error) => toast.error(getApiErrorMessage(error)),
@@ -239,10 +281,12 @@ export function PublicParkingPage() {
 
   const resetFlow = () => {
     setStep('lookup');
-    setVehicle(null);
-    setEntry(null);
+    setDisplay(null);
+    setParkToken(null);
+    setSessionToken(null);
+    setParking(null);
     setVehicleNumber('');
-    localStorage.removeItem(ENTRY_STORAGE_KEY);
+    localStorage.removeItem(SESSION_STORAGE_KEY);
   };
 
   if (site.isLoading) {
@@ -413,7 +457,7 @@ export function PublicParkingPage() {
           ) : null}
 
           {/* STEP 3 — confirm and park */}
-          {step === 'confirm' && vehicle ? (
+          {step === 'confirm' && display ? (
             <motion.div key="confirm" initial={{ opacity: 0, y: 14 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -14 }}>
               <Card className="space-y-5 p-6">
                 <div className="space-y-1">
@@ -426,23 +470,23 @@ export function PublicParkingPage() {
                     <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       <Car className="size-3.5" /> Vehicle
                     </p>
-                    <p className="font-mono text-xl font-semibold tracking-wide">{vehicle.vehicleNumber}</p>
+                    <p className="font-mono text-xl font-semibold tracking-wide">{display.vehicleNumber}</p>
                     <p className="text-sm text-muted-foreground">
-                      {[vehicle.brand, vehicle.model, vehicle.color].filter(Boolean).join(' · ') || vehicle.vehicleType}
+                      {[display.brand, display.model, display.color].filter(Boolean).join(' · ') || display.vehicleType}
                     </p>
                   </div>
                   <div className="rounded-xl border px-4 py-2">
                     <p className="flex items-center gap-1.5 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       <User className="size-3.5" /> Employee
                     </p>
-                    <InfoRow label="Name" value={vehicle.employee.name} />
-                    <InfoRow label="Employee ID" value={vehicle.employee.employeeCode} />
+                    <InfoRow label="Name" value={display.employeeName} />
+                    <InfoRow label="Employee ID" value={display.employeeCode} />
                   </div>
                   <div className="rounded-xl border px-4 py-2">
                     <p className="flex items-center gap-1.5 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                       <Building2 className="size-3.5" /> Organization & site
                     </p>
-                    <InfoRow label="Organization" value={vehicle.employee.organization.companyName} />
+                    <InfoRow label="Organization" value={display.organizationName} />
                     <InfoRow label="Parking site" value={site.data.name} />
                   </div>
                 </div>
@@ -456,6 +500,7 @@ export function PublicParkingPage() {
                     variant="brand"
                     className="h-13 flex-1 text-base font-semibold"
                     onClick={() => park.mutate()}
+                    disabled={!parkToken}
                     loading={park.isPending}
                   >
                     <CircleParking /> PARK MY VEHICLE
@@ -493,7 +538,7 @@ export function PublicParkingPage() {
                       {liveEntry.status === 'PARKED' && 'Tap GET MY CAR when you\'re ready to leave.'}
                       {liveEntry.status === 'PICKUP_REQUESTED' && 'All valets at this site have been notified.'}
                       {liveEntry.status === 'PICKUP_IN_PROGRESS' &&
-                        `${liveEntry.pickupRequest?.acceptedBy?.name ?? 'A valet'} accepted your request.`}
+                        `${liveEntry.pickupAcceptedByName ?? 'A valet'} accepted your request.`}
                       {liveEntry.status === 'COMPLETED' && 'Thanks for parking with WeePark!'}
                     </p>
                   </div>
@@ -502,10 +547,9 @@ export function PublicParkingPage() {
                 <div className="space-y-4 p-6">
                   <div className="flex items-center justify-between">
                     <div>
-                      <p className="font-mono text-2xl font-semibold tracking-wide">{liveEntry.vehicle.vehicleNumber}</p>
+                      <p className="font-mono text-2xl font-semibold tracking-wide">{liveEntry.vehicleNumber}</p>
                       <p className="text-sm text-muted-foreground">
-                        {[liveEntry.vehicle.brand, liveEntry.vehicle.model].filter(Boolean).join(' ') ||
-                          liveEntry.vehicle.vehicleType}
+                        {[liveEntry.brand, liveEntry.model].filter(Boolean).join(' ') || liveEntry.vehicleType}
                       </p>
                     </div>
                     <Badge variant="outline" className="font-mono text-xs">{liveEntry.ticketCode}</Badge>
@@ -514,22 +558,22 @@ export function PublicParkingPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="rounded-xl bg-muted/60 p-3.5">
                       <p className="text-xs text-muted-foreground">Parked at</p>
-                      <p className="mt-0.5 font-semibold">{format(new Date(liveEntry.parkedAt), 'HH:mm')}</p>
-                      <p className="text-xs text-muted-foreground">{format(new Date(liveEntry.parkedAt), 'dd MMM yyyy')}</p>
+                      <p className="mt-0.5 font-semibold">{Number.isNaN(new Date(liveEntry.parkedAt).getTime()) ? '—' : format(new Date(liveEntry.parkedAt), 'HH:mm')}</p>
+                      <p className="text-xs text-muted-foreground">{Number.isNaN(new Date(liveEntry.parkedAt).getTime()) ? '' : format(new Date(liveEntry.parkedAt), 'dd MMM yyyy')}</p>
                     </div>
                     <div className="rounded-xl bg-muted/60 p-3.5">
                       <p className="text-xs text-muted-foreground">Duration</p>
                       <p className="mt-0.5 font-semibold tabular-nums">
                         {liveEntry.status === 'COMPLETED' ? formatDuration(liveEntry.durationMinutes) : duration}
                       </p>
-                      <p className="text-xs text-muted-foreground">{liveEntry.site.name}</p>
+                      <p className="text-xs text-muted-foreground">{liveEntry.siteName}</p>
                     </div>
                   </div>
 
                   <div className="rounded-xl border px-4 py-1">
-                    <InfoRow label="Employee" value={liveEntry.employee.name} />
-                    <InfoRow label="Organization" value={liveEntry.organization.name} />
-                    {liveEntry.valet ? <InfoRow label="Valet" value={liveEntry.valet.name} /> : null}
+                    <InfoRow label="Employee" value={liveEntry.employeeName} />
+                    <InfoRow label="Organization" value={liveEntry.organizationName} />
+                    {liveEntry.valetName ? <InfoRow label="Valet" value={liveEntry.valetName} /> : null}
                   </div>
 
                   {liveEntry.status === 'PARKED' ? (

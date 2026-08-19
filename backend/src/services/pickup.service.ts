@@ -5,6 +5,7 @@ import { parkingRepository } from '../repositories/parking.repository';
 import { pickupRepository, type PickupRequestFull } from '../repositories/pickup.repository';
 import { ApiError } from '../utils/apiError';
 import { buildPaginatedResult } from '../utils/pagination';
+import { verifyParkSession } from '../utils/parkingToken';
 import { notificationService } from './notification.service';
 import { recordAudit } from './audit.service';
 import type { AuthenticatedUser, PaginatedResult, PaginationParams } from '../types';
@@ -22,6 +23,8 @@ export const pickupService = {
     params: PaginationParams & { status?: PickupStatus },
   ): Promise<PaginatedResult<PickupRequestFull>> {
     let siteIds: string[] | undefined;
+    let organizationId: string | undefined;
+
     if (actor.role === 'VALET') {
       const assignments = await prisma.valetSiteAssignment.findMany({
         where: { valetId: actor.id },
@@ -29,56 +32,80 @@ export const pickupService = {
       });
       siteIds = assignments.map((a) => a.siteId);
       if (siteIds.length === 0) return buildPaginatedResult<PickupRequestFull>([], 0, params);
+    } else if (actor.role === 'ORG_ADMIN') {
+      if (!actor.organizationId) throw ApiError.forbidden('Your account is not linked to an organization');
+      organizationId = actor.organizationId;
     }
 
-    const { items, total } = await pickupRepository.findMany({ ...params, siteIds });
+    const { items, total } = await pickupRepository.findMany({ ...params, siteIds, organizationId });
     return buildPaginatedResult(items, total, params);
   },
 
-  /** Public: employee presses "GET MY CAR" from the QR page. */
-  async requestPickup(parkingEntryId: string): Promise<PickupRequestFull> {
-    const entry = await parkingRepository.findById(parkingEntryId);
-    if (!entry) throw ApiError.notFound('Parking record not found');
-    if (entry.status !== 'PARKED') {
-      throw ApiError.conflict(
-        entry.status === 'COMPLETED' ? 'This vehicle has already been picked up' : 'A pickup is already in progress for this vehicle',
-      );
+  async requestPickup(sessionToken: string, vehicleNumber: string, ticketCode: string): Promise<PickupRequestFull> {
+    const claims = verifyParkSession(sessionToken);
+    if (claims.vehicleNumber !== vehicleNumber || claims.ticketCode !== ticketCode) {
+      throw ApiError.forbidden('Pickup confirmation does not match this parking session');
     }
 
-    const [pickup] = await Promise.all([
-      pickupRepository.create(parkingEntryId),
-      parkingRepository.update(parkingEntryId, { status: 'PICKUP_REQUESTED' }),
-    ]);
+    const pickupId = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM parking_entries WHERE id = ${claims.parkingEntryId} FOR UPDATE`;
+      const entry = await tx.parkingEntry.findUnique({
+        where: { id: claims.parkingEntryId },
+        include: { vehicle: { select: { vehicleNumber: true } } },
+      });
+      if (!entry) throw ApiError.notFound('Parking record not found');
+      if (entry.ticketCode !== ticketCode || entry.vehicle.vehicleNumber !== vehicleNumber) {
+        throw ApiError.forbidden('Pickup confirmation does not match this parking session');
+      }
+      if (entry.status !== 'PARKED') {
+        throw ApiError.conflict(
+          entry.status === 'COMPLETED'
+            ? 'This vehicle has already been picked up'
+            : 'A pickup is already in progress for this vehicle',
+        );
+      }
 
-    await notificationService.notifySiteValets(entry.site.id, {
-      type: 'PICKUP_REQUESTED',
-      title: 'Pickup requested',
-      message: `${entry.vehicle.vehicleNumber} — ${entry.employee.name} is waiting at ${entry.site.name}`,
-      data: { pickupRequestId: pickup.id, parkingEntryId, siteId: entry.site.id },
+      const pickup = await tx.pickupRequest.create({ data: { parkingEntryId: entry.id } });
+      await tx.parkingEntry.update({ where: { id: entry.id }, data: { status: 'PICKUP_REQUESTED' } });
+      return pickup.id;
     });
 
-    await recordAudit({ action: 'PICKUP_REQUESTED', entity: 'PickupRequest', entityId: pickup.id, metadata: { vehicleNumber: entry.vehicle.vehicleNumber } });
+    const pickup = await pickupRepository.findById(pickupId);
+    if (!pickup) throw ApiError.internal('Pickup state error');
+
+    await notificationService.notifySiteValets(pickup.parkingEntry.site.id, {
+      type: 'PICKUP_REQUESTED',
+      title: 'Pickup requested',
+      message: `${pickup.parkingEntry.vehicle.vehicleNumber} — ${pickup.parkingEntry.employee.name} is waiting at ${pickup.parkingEntry.site.name}`,
+      data: { pickupRequestId: pickup.id, parkingEntryId: claims.parkingEntryId, siteId: pickup.parkingEntry.site.id },
+    });
+
+    await recordAudit({
+      action: 'PICKUP_REQUESTED',
+      entity: 'PickupRequest',
+      entityId: pickup.id,
+      metadata: { vehicleNumber: pickup.parkingEntry.vehicle.vehicleNumber },
+    });
     return pickup;
   },
 
-  /** Valet accepts a pending pickup. First-come-first-served via conditional update. */
   async acceptPickup(actor: AuthenticatedUser, pickupId: string): Promise<PickupRequestFull> {
     const pickup = await pickupRepository.findById(pickupId);
     if (!pickup) throw ApiError.notFound('Pickup request not found');
     await assertValetSiteAccess(actor.id, pickup.parkingEntry.site.id);
 
-    // Guard against two valets accepting simultaneously.
-    const claimed = await prisma.pickupRequest.updateMany({
-      where: { id: pickupId, status: 'PENDING' },
-      data: { status: 'ACCEPTED', acceptedById: actor.id, acceptedAt: new Date() },
-    });
-    if (claimed.count === 0) {
-      throw ApiError.conflict('This pickup has already been accepted by another valet');
-    }
-
-    await parkingRepository.update(pickup.parkingEntry.id, {
-      status: 'PICKUP_IN_PROGRESS',
-      valet: { connect: { id: actor.id } },
+    await prisma.$transaction(async (tx) => {
+      const claimed = await tx.pickupRequest.updateMany({
+        where: { id: pickupId, status: 'PENDING' },
+        data: { status: 'ACCEPTED', acceptedById: actor.id, acceptedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        throw ApiError.conflict('This pickup has already been accepted by another valet');
+      }
+      await tx.parkingEntry.update({
+        where: { id: pickup.parkingEntry.id },
+        data: { status: 'PICKUP_IN_PROGRESS', valetId: actor.id },
+      });
     });
 
     await recordAudit({ userId: actor.id, action: 'PICKUP_ACCEPTED', entity: 'PickupRequest', entityId: pickupId });
@@ -87,7 +114,6 @@ export const pickupService = {
     return updated;
   },
 
-  /** Valet delivers the vehicle and completes the pickup. */
   async completePickup(actor: AuthenticatedUser, pickupId: string): Promise<PickupRequestFull> {
     const pickup = await pickupRepository.findById(pickupId);
     if (!pickup) throw ApiError.notFound('Pickup request not found');
@@ -97,20 +123,39 @@ export const pickupService = {
     if (pickup.acceptedBy?.id !== actor.id && actor.role === 'VALET') {
       throw ApiError.forbidden('Only the valet who accepted this pickup can complete it');
     }
+    if (actor.role === 'VALET') {
+      await assertValetSiteAccess(actor.id, pickup.parkingEntry.site.id);
+    }
 
     const now = new Date();
     const entry = await parkingRepository.findById(pickup.parkingEntry.id);
     if (!entry) throw ApiError.internal('Parking record missing');
-
     const durationMinutes = differenceInMinutes(now, entry.parkedAt);
 
-    const [updated] = await Promise.all([
-      pickupRepository.update(pickupId, { status: 'COMPLETED', completedAt: now }),
-      parkingRepository.update(entry.id, {
-        status: 'COMPLETED',
-        pickedUpAt: now,
-        durationMinutes,
-        valet: { connect: { id: actor.id } },
+    const [updated] = await prisma.$transaction([
+      prisma.pickupRequest.update({
+        where: { id: pickupId },
+        data: { status: 'COMPLETED', completedAt: now },
+        include: {
+          parkingEntry: {
+            include: {
+              vehicle: { select: { id: true, vehicleNumber: true, vehicleType: true, brand: true, model: true, color: true } },
+              employee: { select: { id: true, name: true, employeeCode: true, phone: true } },
+              organization: { select: { id: true, name: true } },
+              site: { select: { id: true, name: true, siteCode: true } },
+            },
+          },
+          acceptedBy: { select: { id: true, name: true, phone: true } },
+        },
+      }),
+      prisma.parkingEntry.update({
+        where: { id: entry.id },
+        data: {
+          status: 'COMPLETED',
+          pickedUpAt: now,
+          durationMinutes,
+          valetId: actor.id,
+        },
       }),
     ]);
 
@@ -121,7 +166,13 @@ export const pickupService = {
       data: { pickupRequestId: pickupId, parkingEntryId: entry.id },
     });
 
-    await recordAudit({ userId: actor.id, action: 'PICKUP_COMPLETED', entity: 'PickupRequest', entityId: pickupId, metadata: { durationMinutes } });
+    await recordAudit({
+      userId: actor.id,
+      action: 'PICKUP_COMPLETED',
+      entity: 'PickupRequest',
+      entityId: pickupId,
+      metadata: { durationMinutes },
+    });
     return updated;
   },
 };

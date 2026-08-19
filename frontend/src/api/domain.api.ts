@@ -1,4 +1,12 @@
 import { deleteOne, downloadFile, getOne, getPaginated, patchOne, postOne } from './crud';
+import {
+  dashboardStatsSchema,
+  parseResponse,
+  parkResultSchema,
+  publicParkingStatusSchema,
+  registerResultSchema,
+  vehicleLookupSchema,
+} from '@/lib/response-schemas';
 import type {
   AppNotification,
   AuditLog,
@@ -11,7 +19,9 @@ import type {
   ParkingEntry,
   PeakHourPoint,
   PickupRequest,
+  PublicParkingStatus,
   PublicSite,
+  PublicVehicleDisplay,
   Site,
   SiteAllocationInput,
   SiteCapacitySummary,
@@ -120,7 +130,8 @@ export const notificationsApi = {
 };
 
 export const dashboardApi = {
-  stats: (): Promise<DashboardStats> => getOne('/dashboard/stats'),
+  stats: async (): Promise<DashboardStats> =>
+    parseResponse(dashboardStatsSchema, await getOne('/dashboard/stats'), 'dashboard'),
   parkingTrend: (days = 14): Promise<TrendPoint[]> => getOne(`/dashboard/parking-trend?days=${days}`),
   peakHours: (): Promise<PeakHourPoint[]> => getOne('/dashboard/peak-hours'),
   organizationUsage: (): Promise<UsagePoint[]> => getOne('/dashboard/organization-usage'),
@@ -134,15 +145,35 @@ export const auditApi = {
 /** Public (unauthenticated) QR flow endpoints. */
 export const publicApi = {
   getSite: (siteCode: string): Promise<PublicSite> => getOne(`/public/parking/sites/${siteCode}`),
-  organizations: (siteCode?: string): Promise<OrganizationOption[]> =>
-    getOne(`/public/organizations${siteCode ? `?siteCode=${encodeURIComponent(siteCode)}` : ''}`),
-  lookupVehicle: (siteCode: string, vehicleNumber: string): Promise<VehicleLookupResult> =>
-    postOne(`/public/parking/sites/${siteCode}/lookup`, { vehicleNumber }),
-  quickRegister: (siteCode: string, input: Record<string, unknown>): Promise<Vehicle> =>
-    postOne(`/public/parking/sites/${siteCode}/register`, input),
-  park: (siteCode: string, vehicleId: string): Promise<ParkingEntry> =>
-    postOne(`/public/parking/sites/${siteCode}/park`, { vehicleId }),
-  getEntry: (id: string): Promise<ParkingEntry> => getOne(`/public/parking/entries/${id}`),
-  requestPickup: (parkingEntryId: string): Promise<PickupRequest> =>
-    postOne('/public/pickups/request', { parkingEntryId }),
+  organizations: (siteCode: string): Promise<OrganizationOption[]> =>
+    getOne(`/public/organizations?siteCode=${encodeURIComponent(siteCode)}`),
+  lookupVehicle: async (siteCode: string, vehicleNumber: string): Promise<VehicleLookupResult> =>
+    parseResponse(
+      vehicleLookupSchema,
+      await postOne(`/public/parking/sites/${siteCode}/lookup`, { vehicleNumber }),
+      'vehicle lookup',
+    ) as VehicleLookupResult,
+  quickRegister: async (
+    siteCode: string,
+    input: Record<string, unknown>,
+  ): Promise<{ parkToken: string; display: PublicVehicleDisplay; site: { name: string; siteCode: string } }> =>
+    parseResponse(
+      registerResultSchema,
+      await postOne(`/public/parking/sites/${siteCode}/register`, input),
+      'quick register',
+    ) as { parkToken: string; display: PublicVehicleDisplay; site: { name: string; siteCode: string } },
+  park: async (siteCode: string, parkToken: string): Promise<{ sessionToken: string; parking: PublicParkingStatus }> =>
+    parseResponse(
+      parkResultSchema,
+      await postOne(`/public/parking/sites/${siteCode}/park`, { parkToken }),
+      'park',
+    ) as { sessionToken: string; parking: PublicParkingStatus },
+  getSession: async (sessionToken: string): Promise<PublicParkingStatus> =>
+    parseResponse(
+      publicParkingStatusSchema,
+      await postOne('/public/parking/session/status', { sessionToken }),
+      'parking session',
+    ) as PublicParkingStatus,
+  requestPickup: (sessionToken: string, vehicleNumber: string, ticketCode: string): Promise<{ status: string }> =>
+    postOne('/public/pickups/request', { sessionToken, vehicleNumber, ticketCode }),
 };
