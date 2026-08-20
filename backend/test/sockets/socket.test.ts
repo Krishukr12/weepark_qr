@@ -7,12 +7,15 @@ import {
   cleanupTestData,
   createTenant,
   dataOf,
+  hash,
   lookupAndPark,
   requestPickup,
   startTestServer,
   stopTestServer,
+  unique,
   type TenantFixture,
 } from '../helpers';
+import { prisma } from '../../src/config/prisma';
 
 function connect(token: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
@@ -170,6 +173,91 @@ describe('notifications and dashboard isolation', () => {
     const payload = await received;
     expect(payload.data?.parkingEntryId).toMatch(/^c/i);
     expect(payload.data?.siteId).toBe(tenantA.site.id);
+    socket.disconnect();
+  });
+
+  it('stores VEHICLE_PARKED for every valet assigned to the site, not other sites', async () => {
+    const extra = await prisma.user.create({
+      data: {
+        name: 'Second Site Valet',
+        email: `valet-extra-${unique('sv')}@wptest.local`,
+        passwordHash: await hash('TestPass1234'),
+        role: 'VALET',
+      },
+    });
+    await prisma.valetSiteAssignment.create({ data: { valetId: extra.id, siteId: tenantA.site.id } });
+
+    const plate = `WPTN${unique('np').replace(/[^A-Z0-9]/gi, '').slice(-6)}`.slice(0, 12).toUpperCase();
+    await prisma.vehicle.create({
+      data: { vehicleNumber: plate, vehicleType: 'CAR', employeeId: tenantA.employee.id },
+    });
+
+    const publicClient = new ApiClient();
+    await lookupAndPark(publicClient, tenantA.site.siteCode, plate);
+
+    const entry = await prisma.parkingEntry.findFirst({
+      where: { vehicle: { vehicleNumber: plate } },
+      select: { id: true },
+    });
+    expect(entry).toBeTruthy();
+
+    const notes = await prisma.notification.findMany({
+      where: { type: 'VEHICLE_PARKED' },
+    });
+    const recipients = notes
+      .filter((note) => (note.data as { parkingEntryId?: string } | null)?.parkingEntryId === entry?.id)
+      .map((note) => note.userId);
+
+    expect(recipients.sort()).toEqual([tenantA.valet.id, extra.id].sort());
+    expect(recipients).not.toContain(tenantA.otherValet.id);
+    expect(recipients).not.toContain(tenantA.admin.id);
+  });
+
+  it('delivers PICKUP_REQUESTED then PICKUP_ACCEPTED to assigned valets', async () => {
+    const plate = `WPTP${unique('pu').replace(/[^A-Z0-9]/gi, '').slice(-6)}`.slice(0, 12).toUpperCase();
+    await prisma.vehicle.create({
+      data: { vehicleNumber: plate, vehicleType: 'CAR', employeeId: tenantA.employee.id },
+    });
+
+    const token = signAccessToken({ sub: tenantA.valet.id, role: 'VALET', organizationId: null });
+    const socket = await connect(token);
+    const requested = new Promise<{ type: string; data: { pickupRequestId?: string } | null }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timed out waiting for PICKUP_REQUESTED')), 4000);
+      socket.on('notification', (payload: { type: string; data: { pickupRequestId?: string } | null }) => {
+        if (payload.type === 'PICKUP_REQUESTED') {
+          clearTimeout(timer);
+          resolve(payload);
+        }
+      });
+    });
+
+    const publicClient = new ApiClient();
+    const parked = await lookupAndPark(publicClient, tenantA.site.siteCode, plate);
+    const pickupRes = await requestPickup(
+      publicClient,
+      parked.sessionToken,
+      parked.parking.vehicleNumber,
+      parked.parking.ticketCode,
+    );
+    expect(pickupRes.status).toBe(201);
+    const pickupId = dataOf<{ id: string }>(pickupRes.json).id;
+    const payload = await requested;
+    expect(payload.data?.pickupRequestId).toBe(pickupId);
+
+    const accepted = new Promise<{ type: string }>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('timed out waiting for PICKUP_ACCEPTED')), 4000);
+      socket.on('notification', (note: { type: string }) => {
+        if (note.type === 'PICKUP_ACCEPTED') {
+          clearTimeout(timer);
+          resolve(note);
+        }
+      });
+    });
+
+    const valet = new ApiClient();
+    await valet.login(tenantA.valet.email, tenantA.password);
+    expect((await valet.request(`/api/v1/pickups/${pickupId}/accept`, { method: 'POST', body: '{}' })).status).toBe(200);
+    await accepted;
     socket.disconnect();
   });
 

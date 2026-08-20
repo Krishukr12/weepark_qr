@@ -40,6 +40,7 @@ describe('realtimeInvalidationKeys', () => {
 
   it('refreshes pickups, parking, sites, and stats on pickup events', () => {
     expect(keys('PICKUP_REQUESTED')).toBe(keys('PICKUP_COMPLETED'));
+    expect(keys('PICKUP_REQUESTED')).toBe(keys('PICKUP_ACCEPTED'));
     const set = realtimeInvalidationKeys('PICKUP_REQUESTED').map((k) => k.join('/'));
     expect(set).toEqual(
       expect.arrayContaining(['notifications', 'pickups', 'parking', 'dashboard/stats', 'sites']),

@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -5,6 +6,7 @@ import { BellRing, Car, CheckCircle2, Hand } from 'lucide-react';
 import { pickupsApi } from '@/api/domain.api';
 import { getApiErrorMessage } from '@/lib/api';
 import { highlightDomId } from '@/lib/notification-target';
+import { notePickupResolved, syncPendingPickupAlarms } from '@/lib/notification-sound';
 import { cn } from '@/lib/utils';
 import { useHighlightParam } from '@/hooks/use-highlight-param';
 import { Button } from '@/components/ui/button';
@@ -27,6 +29,7 @@ function PickupRow({ pickup, highlighted }: { pickup: PickupRequest; highlighted
     mutationFn: () => pickupsApi.accept(pickup.id),
     onSuccess: () => {
       toast.success(`Accepted pickup for ${pickup.parkingEntry.vehicle.vehicleNumber}`);
+      notePickupResolved(pickup.id);
       invalidate();
     },
     onError: (error) => toast.error(getApiErrorMessage(error)),
@@ -99,6 +102,11 @@ export function PendingPickupsPanel() {
     refetchInterval: 60_000,
     refetchIntervalInBackground: false,
   });
+
+  useEffect(() => {
+    if (!data) return;
+    syncPendingPickupAlarms(data.filter((pickup) => pickup.status === 'PENDING').map((pickup) => pickup.id));
+  }, [data]);
 
   const highlightPickupId = useHighlightParam('pickup', Boolean(data));
 

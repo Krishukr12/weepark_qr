@@ -7,6 +7,7 @@ import {
   createSuperAdmin,
   createTenant,
   dataOf,
+  hash,
   requestPickup,
   startTestServer,
   stopTestServer,
@@ -192,6 +193,36 @@ describe('B2C walk-in parking', () => {
     await valet.login(b2c.valet.email, b2c.password);
     expect((await valet.request(`/api/v1/pickups/${pickupId}/accept`, { method: 'POST' })).status).toBe(200);
     expect((await valet.request(`/api/v1/pickups/${pickupId}/complete`, { method: 'POST' })).status).toBe(200);
+  });
+
+  it('notifies every valet assigned to the B2C site when a guest parks', async () => {
+    const extra = await prisma.user.create({
+      data: {
+        name: 'Second B2C Valet',
+        email: `b2c-valet-extra-${unique('bv')}@wptest.local`,
+        passwordHash: await hash('TestPass1234'),
+        role: 'VALET',
+      },
+    });
+    await prisma.valetSiteAssignment.create({ data: { valetId: extra.id, siteId: b2c.site.id } });
+
+    const plate = `WPTN${unique('bn').replace(/[^A-Z0-9]/gi, '').slice(-6)}`.slice(0, 12).toUpperCase();
+    await guestPark(publicClient, b2c.site.siteCode, plate, '9000000060');
+
+    const entry = await prisma.parkingEntry.findFirst({
+      where: { vehicle: { vehicleNumber: plate } },
+      select: { id: true },
+    });
+    expect(entry).toBeTruthy();
+
+    const notes = await prisma.notification.findMany({ where: { type: 'VEHICLE_PARKED' } });
+    const recipients = notes
+      .filter((note) => (note.data as { parkingEntryId?: string } | null)?.parkingEntryId === entry?.id)
+      .map((note) => note.userId);
+
+    expect(recipients.sort()).toEqual([b2c.valet.id, extra.id].sort());
+    expect(recipients).not.toContain(b2b.valet.id);
+    expect(recipients).not.toContain(b2c.admin.id);
   });
 
   it('reuses the same guest for a return visit and rejects a different phone', async () => {

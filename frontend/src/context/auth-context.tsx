@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { authApi } from '@/api/auth.api';
 import { tokenStore } from '@/lib/token-store';
 import { connectSocket, disconnectSocket } from '@/lib/socket';
+import { primeStaffAlertsFromUserGesture, clearPickupAlarms } from '@/lib/notification-sound';
 import type { User } from '@/types';
 
 interface AuthContextValue {
@@ -49,6 +50,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handler = () => {
       setUser(null);
+      clearPickupAlarms();
       disconnectSocket();
       queryClient.clear();
     };
@@ -57,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [queryClient]);
 
   const login = useCallback(async (email: string, password: string): Promise<User> => {
+    primeStaffAlertsFromUserGesture();
     const result = await authApi.login(email, password);
     tokenStore.setAccessToken(result.accessToken);
     setUser(result.user);
@@ -71,6 +74,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       tokenStore.clear();
     }
     disconnectSocket();
+    clearPickupAlarms();
     setUser(null);
     queryClient.clear();
   }, [queryClient]);

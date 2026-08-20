@@ -2,16 +2,22 @@ import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { getSocket } from '@/lib/socket';
-import { playNotificationChime, unlockNotificationAudio } from '@/lib/notification-sound';
+import { subscribeToNotifications, subscribeToSocketReconnect } from '@/lib/socket';
+import { announceStaffNotification, resumeNotificationAudio } from '@/lib/notification-sound';
 import { getNotificationHref } from '@/lib/notification-target';
 import { realtimeInvalidationKeys } from '@/lib/realtime-invalidation';
 import { notificationsApi } from '@/api/domain.api';
 import type { AppNotification } from '@/types';
 
+function pickupRequestIdOf(notification: AppNotification): string | null {
+  const value = notification.data?.pickupRequestId;
+  return typeof value === 'string' && value.length > 0 ? value : null;
+}
+
 /**
  * Subscribes to real-time notifications for the signed-in user:
- * chime + toast, then invalidate affected queries so views stay live.
+ * chime + toast (OS banner when the tab is in the background), then invalidate affected queries.
+ * Pickup requests keep a looping alarm until a valet accepts.
  * Only mounted from AppShell — public QR customers never hear this.
  */
 export function useRealtime(): void {
@@ -19,25 +25,39 @@ export function useRealtime(): void {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const unlock = () => unlockNotificationAudio();
-    window.addEventListener('pointerdown', unlock, { once: true });
-    window.addEventListener('keydown', unlock, { once: true });
+    const resume = () => resumeNotificationAudio();
+    window.addEventListener('pointerdown', resume);
+    window.addEventListener('keydown', resume);
+    document.addEventListener('visibilitychange', resume);
     return () => {
-      window.removeEventListener('pointerdown', unlock);
-      window.removeEventListener('keydown', unlock);
+      window.removeEventListener('pointerdown', resume);
+      window.removeEventListener('keydown', resume);
+      document.removeEventListener('visibilitychange', resume);
     };
   }, []);
 
   useEffect(() => {
-    const socket = getSocket();
-    if (!socket) return;
+    const onOpen = (event: Event) => {
+      const href = (event as CustomEvent<string>).detail;
+      if (href) navigate(href);
+    };
+    window.addEventListener('weepark:notification-open', onOpen);
+    return () => window.removeEventListener('weepark:notification-open', onOpen);
+  }, [navigate]);
 
+  useEffect(() => {
     const onNotification = (notification: AppNotification) => {
-      playNotificationChime();
       const href = getNotificationHref(notification);
+      announceStaffNotification({
+        title: notification.title,
+        message: notification.message,
+        href,
+        type: notification.type,
+        pickupRequestId: pickupRequestIdOf(notification),
+      });
       toast(notification.title, {
         description: notification.message,
-        duration: 7000,
+        duration: notification.type === 'PICKUP_REQUESTED' ? 12_000 : 7000,
         action: href
           ? {
               label: 'Open',
@@ -57,9 +77,13 @@ export function useRealtime(): void {
       }
     };
 
-    socket.on('notification', onNotification);
-    return () => {
-      socket.off('notification', onNotification);
-    };
+    return subscribeToNotifications(onNotification);
   }, [navigate, queryClient]);
+
+  useEffect(() => {
+    return subscribeToSocketReconnect(() => {
+      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      void queryClient.invalidateQueries({ queryKey: ['pickups'] });
+    });
+  }, [queryClient]);
 }

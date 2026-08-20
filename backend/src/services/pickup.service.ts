@@ -111,6 +111,18 @@ export const pickupService = {
     await recordAudit({ userId: actor.id, action: 'PICKUP_ACCEPTED', entity: 'PickupRequest', entityId: pickupId });
     const updated = await pickupRepository.findById(pickupId);
     if (!updated) throw ApiError.internal('Pickup state error');
+
+    await notificationService.notifySiteValets(updated.parkingEntry.site.id, {
+      type: 'PICKUP_ACCEPTED',
+      title: 'Pickup accepted',
+      message: `${updated.parkingEntry.vehicle.vehicleNumber} is being delivered at ${updated.parkingEntry.site.name} by ${actor.name}`,
+      data: {
+        pickupRequestId: updated.id,
+        parkingEntryId: updated.parkingEntry.id,
+        siteId: updated.parkingEntry.site.id,
+      },
+    });
+
     return updated;
   },
 

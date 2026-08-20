@@ -65,16 +65,14 @@ export const notificationService = {
     );
   },
 
-  /** Notify every active valet assigned to a site — used for pickup requests. */
+  /** Notify every active valet assigned to a site (parked vehicles and pickup events). */
   async notifySiteValets(siteId: string, input: Omit<NotifyInput, 'userId'>): Promise<void> {
     const assignments = await prisma.valetSiteAssignment.findMany({
-      where: { siteId, valet: { isActive: true } },
+      where: { siteId, valet: { isActive: true, role: 'VALET' } },
       select: { valetId: true },
     });
-    await this.notifyUsers(
-      assignments.map((a) => a.valetId),
-      input,
-    );
+    const valetIds = [...new Set(assignments.map((a) => a.valetId))];
+    await this.notifyUsers(valetIds, input);
     getIO()?.to(`site:${siteId}`).emit('site:event', { siteId, ...input });
   },
 };
